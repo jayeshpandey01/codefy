@@ -1,0 +1,27 @@
+id: js-command-injection-exec
+language: TypeScript
+severity: error
+message: >
+  User-controlled input reaches child_process.exec/execSync with shell interpretation enabled.
+  This allows arbitrary OS command execution.
+note: |
+  exec()/execSync() run their argument through /bin/sh (or cmd.exe), so any shell metacharacter
+  in tainted input (;, |, &&, $(), backticks) breaks out of the intended command.
+rule:
+  any:
+    - pattern: $CP.exec($CMD)
+    - pattern: $CP.exec($CMD, $$$)
+    - pattern: $CP.execSync($CMD)
+    - pattern: $CP.execSync($CMD, $$$)
+    - pattern: exec($CMD)
+    - pattern: exec($CMD, $$$)
+    - pattern: execSync($CMD)
+    - pattern: execSync($CMD, $$$)
+constraints:
+  CMD:
+    not:
+      any:
+        - kind: string
+        - kind: template_string
+fix: |
+  $CP.execFile($BIN, [$$$ARGS], $$$)

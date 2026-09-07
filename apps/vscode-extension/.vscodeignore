@@ -1,0 +1,32 @@
+# This extension intentionally SHIPS node_modules -- @ast-grep/napi's native
+# binary and tree-sitter-wasms' grammar assets have to be physically present
+# in the packaged .vsix (see CLAUDE.md's "Why No External Runtime?" ADR).
+# Do NOT add a blanket `node_modules/**` exclude here.
+
+src/**
+scripts/**
+*.ts
+tsconfig.json
+vitest.config.ts
+out/**
+.turbo/**
+*.tsbuildinfo
+
+# Built output ships, but not its source maps.
+dist/**/*.map
+!dist/**/*.js
+!dist/**/*.css
+
+# Trim node_modules of everything that isn't needed at runtime.
+node_modules/**/*.md
+node_modules/**/*.markdown
+node_modules/**/*.map
+node_modules/**/*.ts
+node_modules/**/*.tsbuildinfo
+node_modules/**/test/**
+node_modules/**/tests/**
+node_modules/**/__tests__/**
+node_modules/**/.github/**
+
+.gitignore
+.vscodeignore

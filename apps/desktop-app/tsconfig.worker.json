@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "WebWorker"],
+    "types": ["vite/client"],
+    "outDir": "dist/types-worker",
+    "rootDir": "src",
+    "noEmit": false,
+    "emitDeclarationOnly": true
+  },
+  "references": [
+    { "path": "../../packages/types" },
+    { "path": "../../packages/core" }
+  ],
+  "include": ["src/worker", "src/engineWorkerProtocol.ts"]
+}

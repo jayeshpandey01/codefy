@@ -1,0 +1,12 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+python-dotenv>=1.0.0
+psutil>=6.0.0
+huggingface-hub>=0.25.0
+requests>=2.32.0
+# For official meta-llama/Llama-3.2-1B models:
+transformers>=4.45.0
+accelerate>=0.34.0
+# For GGUF-based CPU inference (optional):
+llama-cpp-python>=0.3.0

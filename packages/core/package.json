@@ -1,0 +1,75 @@
+{
+  "name": "@whoami/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#ast-grep-adapter": {
+      "whoami-node": "./src/ast-grep/ast-grep-napi.adapter.ts",
+      "whoami-wasm": "./src/ast-grep/ast-grep-wasm.adapter.ts",
+      "default": "./src/ast-grep/ast-grep-napi.adapter.ts"
+    },
+    "#tree-sitter-grammar-loader": {
+      "whoami-node": "./src/parser/grammar-loader.node.ts",
+      "whoami-wasm": "./src/parser/grammar-loader.wasm.ts",
+      "default": "./src/parser/grammar-loader.node.ts"
+    }
+  },
+  "exports": {
+    "./node": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist-node/index.js"
+    },
+    "./wasm": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist-wasm/index.js"
+    },
+    "./query": {
+      "types": "./dist/types/query/index.d.ts",
+      "default": "./dist-query/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -b ./tsconfig.json && tsup --config tsup.config.node.ts && tsup --config tsup.config.wasm.ts && tsup --config tsup.config.query.ts",
+    "build:types": "tsc -b ./tsconfig.json",
+    "build:node": "tsup --config tsup.config.node.ts",
+    "build:wasm": "tsup --config tsup.config.wasm.ts",
+    "build:query": "tsup --config tsup.config.query.ts",
+    "dev": "tsc -b ./tsconfig.json --watch",
+    "type-check": "tsc -b ./tsconfig.json",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "clean": "rimraf dist dist-node dist-wasm dist-query *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@vercel/error": "catalog:",
+    "@whoami/types": "workspace:*",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "catalog:",
+    "yaml": "^2.6.1"
+  },
+  "peerDependencies": {
+    "@ast-grep/napi": "catalog:",
+    "@ast-grep/wasm": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@ast-grep/napi": {
+      "optional": true
+    },
+    "@ast-grep/wasm": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@ast-grep/napi": "catalog:",
+    "@ast-grep/wasm": "catalog:",
+    "@types/node": "^20.14.10",
+    "@vitest/coverage-v8": "catalog:",
+    "@whoami/types": "workspace:*",
+    "rimraf": "^6.0.1",
+    "tsup": "^8.3.5",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,38 @@
+         3607826 function calls (3546581 primitive calls) in 9.497 seconds
+
+   Ordered by: cumulative time
+   List reduced from 11345 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    9.507    9.507 C:\Users\jayes\Downloads\TrainIQ\trainiq\__init__.py:202(_run_pipeline)
+        1    0.001    0.001    8.322    8.322 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_selector.py:46(select_best)
+  4368/18    0.027    0.000    5.786    0.321 <frozen importlib._bootstrap>:1165(_find_and_load)
+  1593/16    0.017    0.000    5.785    0.362 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+  1545/18    0.012    0.000    5.776    0.321 <frozen importlib._bootstrap>:666(_load_unlocked)
+  1518/18    0.013    0.000    5.774    0.321 <frozen importlib._bootstrap_external>:934(exec_module)
+  3451/35    0.005    0.000    5.750    0.164 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+  2736/18    0.113    0.000    5.746    0.319 {built-in method builtins.exec}
+   317/40    0.002    0.000    5.071    0.127 {built-in method builtins.__import__}
+3363/2092    0.011    0.000    4.441    0.002 <frozen importlib._bootstrap>:1207(_handle_fromlist)
+        6    0.001    0.000    3.004    0.501 C:\Users\jayes\Downloads\TrainIQ\trainiq\trainer.py:662(train_sklearn)
+        6    0.000    0.000    2.783    0.464 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_zoo.py:349(fit)
+       41    0.000    0.000    2.679    0.065 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_compile.py:42(inner)
+        1    0.000    0.000    2.673    2.673 C:\Users\jayes\Downloads\TrainIQ\trainiq\trainer.py:52(__init__)
+        1    0.000    0.000    2.672    2.672 C:\Users\jayes\Downloads\TrainIQ\trainiq\trainer.py:589(_build_optimizer)
+        1    0.000    0.000    2.672    2.672 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\optim\adam.py:35(__init__)
+        1    0.000    0.000    2.672    2.672 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\optim\optimizer.py:380(__init__)
+        1    0.000    0.000    2.669    2.669 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\__init__.py:1(<module>)
+        1    0.000    0.000    2.469    2.469 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\aot_compile.py:1(<module>)
+        1    0.000    0.000    2.452    2.452 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\convert_frame.py:1(<module>)
+        1    0.000    0.000    2.415    2.415 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\symbolic_convert.py:1(<module>)
+     1518    0.041    0.000    2.202    0.001 <frozen importlib._bootstrap_external>:1007(get_code)
+        7    0.000    0.000    2.127    0.304 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_zoo.py:187(build_model)
+        6    0.000    0.000    2.122    0.354 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_zoo.py:395(_build_sklearn)
+        1    0.000    0.000    2.027    2.027 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\lightgbm\sklearn.py:1494(fit)
+        1    0.000    0.000    2.025    2.025 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\lightgbm\sklearn.py:907(fit)
+        3    0.000    0.000    1.975    0.658 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\lightgbm\sklearn.py:801(_process_params)
+        6    0.000    0.000    1.968    0.328 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\joblib\externals\loky\backend\context.py:78(cpu_count)
+        3    0.000    0.000    1.967    0.656 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\lightgbm\sklearn.py:887(_process_n_jobs)
+        3    0.000    0.000    1.967    0.656 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\lightgbm\compat.py:351(_LGBMCpuCount)
+
+

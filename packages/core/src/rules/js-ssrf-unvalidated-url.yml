@@ -1,0 +1,22 @@
+id: js-ssrf-unvalidated-url
+language: TypeScript
+severity: warning
+message: >
+  A user-controlled value reaches an outbound HTTP call (fetch/axios/http.request) with no
+  visible URL-scheme/host validation on the same path — potential SSRF.
+rule:
+  any:
+    - pattern: fetch($URL)
+    - pattern: fetch($URL, $$$)
+    - pattern: $AXIOS.get($URL)
+    - pattern: $AXIOS.get($URL, $$$)
+    - pattern: $HTTP.request($URL)
+    - pattern: $HTTP.request($URL, $$$)
+constraints:
+  URL:
+    not:
+      kind: string
+note: |
+  This rule flags the candidate path; the deterministic sanitizer-filter logic (A.3) then checks
+  the same path for a private-IP/scheme allowlist guard before promoting to a Finding — the
+  ast-grep rule alone never decides confirmed/discarded.

@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/core" },
+    { "path": "packages/ui" },
+    { "path": "apps/vscode-extension" },
+    { "path": "apps/desktop-app" }
+  ]
+}

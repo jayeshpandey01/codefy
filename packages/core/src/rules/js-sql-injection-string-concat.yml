@@ -1,0 +1,22 @@
+id: js-sql-injection-string-concat
+language: TypeScript
+severity: error
+message: >
+  SQL query built via string concatenation/template literal interpolation instead of
+  parameterized placeholders — classic SQL injection.
+rule:
+  any:
+    - pattern: $DB.query($QUERY)
+    - pattern: $DB.query($QUERY, $$$)
+    - pattern: $KNEX.raw($QUERY)
+    - pattern: $PRISMA.$queryRawUnsafe($QUERY)
+  has:
+    field: arguments
+    any:
+      - kind: template_string
+        has: { kind: template_substitution }
+      - kind: binary_expression
+        has: { pattern: "+" }
+note: |
+  Safe replacements: parameterized placeholders ($DB.query('...$1...', [val])),
+  Prisma tagged templates ($queryRaw`...${val}...`), or knex.raw('?', [val]).

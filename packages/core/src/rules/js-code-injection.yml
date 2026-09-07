@@ -1,0 +1,20 @@
+id: js-code-injection
+language: TypeScript
+severity: error
+message: >
+  User-controlled input reaches eval, Function constructor, or vm execution context.
+note: |
+  Dynamic code evaluation allows arbitrary JavaScript execution in the server runtime.
+rule:
+  any:
+    - pattern: eval($CODE)
+    - pattern: new Function($CODE, $$$)
+    - pattern: Function($CODE, $$$)
+    - pattern: $VM.runInContext($CODE, $$$)
+    - pattern: $VM.runInNewContext($CODE, $$$)
+    - pattern: $VM.runInThisContext($CODE, $$$)
+constraints:
+  CODE:
+    not:
+      any:
+        - kind: string

@@ -1,0 +1,23 @@
+id: js-path-traversal
+language: TypeScript
+severity: error
+message: >
+  User-controlled input reaches filesystem read operations without path normalization and boundary validation.
+note: |
+  Unsanitized file paths allow attackers to escape the intended directory using ../ sequences.
+rule:
+  any:
+    - pattern: $FS.readFile($PATH, $$$)
+    - pattern: $FS.readFileSync($PATH, $$$)
+    - pattern: $FS.createReadStream($PATH, $$$)
+    - pattern: fs.readFile($PATH, $$$)
+    - pattern: fs.readFileSync($PATH, $$$)
+    - pattern: fs.createReadStream($PATH, $$$)
+    - pattern: readFile($PATH, $$$)
+    - pattern: readFileSync($PATH, $$$)
+    - pattern: createReadStream($PATH, $$$)
+constraints:
+  PATH:
+    not:
+      any:
+        - kind: string

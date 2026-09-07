@@ -1,0 +1,142 @@
+@import "tailwindcss";
+@source "../";
+
+@theme {
+  --color-vscode-bg: #1e1e1e;
+  --color-vscode-sidebar: #252526;
+  --color-vscode-activitybar: #181818;
+  --color-vscode-header: #181818;
+  --color-vscode-card: #252526;
+  --color-vscode-card-hover: #2a2d2e;
+  --color-vscode-card-selected: #094771;
+  --color-vscode-border: #303031;
+  --color-vscode-focus: #007acc;
+  --color-vscode-primary: #0e639c;
+  --color-vscode-primary-hover: #1177bb;
+  --color-vscode-btn-secondary: #3a3d41;
+  --color-vscode-btn-secondary-hover: #45494e;
+  --color-vscode-fg: #d4d4d4;
+  --color-vscode-muted: #858585;
+  --color-vscode-dim: #5a5a5a;
+  --color-vscode-link: #3794ff;
+
+  --color-severity-critical: #f14c4c;
+  --color-severity-critical-bg: #5a1d1d;
+  --color-severity-high: #cca700;
+  --color-severity-high-bg: #382c00;
+  --color-severity-medium: #75beff;
+  --color-severity-low: #89d185;
+}
+
+/* Ensure clean, professional code blocks without line-level background strips */
+pre code,
+code {
+  background-color: transparent !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+@keyframes xyflowTaintDash {
+  from {
+    stroke-dashoffset: 28;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* VS Code Dark Modern Scrollbar System */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.2);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease-in-out;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.55);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 122, 204, 0.8);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* VS Code Tab Bar Ultra-Slim Overlay Scrollbar (3px) with Fade-in on Hover */
+.vscode-tabs-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+
+.vscode-tabs-scrollbar:hover {
+  scrollbar-color: rgba(121, 121, 121, 0.45) transparent;
+}
+
+.vscode-tabs-scrollbar::-webkit-scrollbar {
+  height: 3px;
+  width: 3px;
+}
+
+.vscode-tabs-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.vscode-tabs-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+}
+
+.vscode-tabs-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+}
+
+.vscode-tabs-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.75);
+}
+
+.vscode-tabs-scrollbar::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 122, 204, 0.85);
+}
+
+/* Firefox standard scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(121, 121, 121, 0.25) transparent;
+}
+
+/* Hide scrollbar utility for custom overlay scrollbars */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+
+
+

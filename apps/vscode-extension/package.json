@@ -1,0 +1,85 @@
+{
+  "name": "@whoami/vscode-extension",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "whoami",
+  "displayName": "WhoAmI",
+  "description": "Real-time taint-flow finding detection, visual attack paths, and local runtime verification inside VS Code.",
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:whoami.scanWorkspace",
+    "onCommand:whoami.openPanel"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "whoami.scanWorkspace",
+        "title": "WhoAmI: Scan Workspace for Findings",
+        "category": "WhoAmI"
+      },
+      {
+        "command": "whoami.openPanel",
+        "title": "WhoAmI: Open Findings Panel",
+        "category": "WhoAmI"
+      }
+    ],
+    "configuration": {
+      "title": "WhoAmI Security Orchestrator",
+      "properties": {
+        "whoami.orchestrator.url": {
+          "type": "string",
+          "default": "https://axiom-xjkc.onrender.com",
+          "description": "Base URL of the Authorized Scan Orchestrator service."
+        },
+        "whoami.orchestrator.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Operator API Key for submitting scans and fetching results."
+        },
+        "whoami.orchestrator.adminApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Admin API Key for target registration and audit trail inspection."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -b ./tsconfig.json && node scripts/build.js",
+    "build": "tsc -b ./tsconfig.json && node scripts/build.js",
+    "dev": "node scripts/build.js --watch",
+    "type-check": "tsc -b ./tsconfig.json",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "clean": "rimraf dist out *.tsbuildinfo",
+    "package:win32-x64": "node scripts/package.js win32-x64"
+  },
+  "dependencies": {
+    "@whoami/core": "workspace:*",
+    "@whoami/ui": "workspace:*",
+    "@whoami/types": "workspace:*",
+    "@ast-grep/napi": "catalog:",
+    "web-tree-sitter": "catalog:",
+    "tree-sitter-wasms": "^0.1.11",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.96.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.24.2",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "rimraf": "^6.0.1"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-node/
+dist-wasm/
+.turbo/
+*.tsbuildinfo
+coverage/
+out/deploy/
+dist-vsix/
+src-tauri/target/
+.env

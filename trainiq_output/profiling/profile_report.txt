@@ -1,0 +1,38 @@
+         2093784 function calls (2050290 primitive calls) in 4.800 seconds
+
+   Ordered by: cumulative time
+   List reduced from 7406 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    4.808    4.808 C:\Users\jayes\Downloads\TrainIQ\trainiq\__init__.py:202(_run_pipeline)
+        1    0.000    0.000    4.751    4.751 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_training.py:38(run_training)
+        1    0.000    0.000    3.697    3.697 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_training.py:67(_train_pytorch_model)
+       66    0.000    0.000    3.101    0.047 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_compile.py:42(inner)
+   3577/3    0.020    0.000    3.097    1.032 <frozen importlib._bootstrap>:1165(_find_and_load)
+    809/3    0.012    0.000    3.097    1.032 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+    780/2    0.008    0.000    3.094    1.547 <frozen importlib._bootstrap>:666(_load_unlocked)
+    778/2    0.008    0.000    3.094    1.547 <frozen importlib._bootstrap_external>:934(exec_module)
+ 1693/798    0.005    0.000    3.093    0.004 <frozen importlib._bootstrap>:1207(_handle_fromlist)
+   1726/5    0.003    0.000    3.092    0.618 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+   1949/2    0.120    0.000    3.092    1.546 {built-in method builtins.exec}
+        1    0.000    0.000    3.092    3.092 C:\Users\jayes\Downloads\TrainIQ\trainiq\trainer.py:52(__init__)
+    146/4    0.001    0.000    3.092    0.773 {built-in method builtins.__import__}
+        1    0.000    0.000    3.091    3.091 C:\Users\jayes\Downloads\TrainIQ\trainiq\trainer.py:589(_build_optimizer)
+        1    0.000    0.000    3.091    3.091 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\optim\adam.py:35(__init__)
+        1    0.000    0.000    3.091    3.091 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\optim\optimizer.py:380(__init__)
+        1    0.000    0.000    3.089    3.089 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\__init__.py:1(<module>)
+        1    0.000    0.000    2.884    2.884 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\aot_compile.py:1(<module>)
+        1    0.000    0.000    2.835    2.835 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\convert_frame.py:1(<module>)
+        1    0.001    0.001    2.790    2.790 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\symbolic_convert.py:1(<module>)
+        1    0.000    0.000    1.494    1.494 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\exc.py:1(<module>)
+        1    0.001    0.001    1.487    1.487 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\utils.py:1(<module>)
+        1    0.001    0.001    1.223    1.223 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\trace_rules.py:1(<module>)
+        1    0.001    0.001    1.210    1.210 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\fx\experimental\symbolic_shapes.py:1(<module>)
+        1    0.000    0.000    1.147    1.147 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\sympy\__init__.py:1(<module>)
+        1    0.000    0.000    1.054    1.054 C:\Users\jayes\Downloads\TrainIQ\trainiq\model_training.py:90(_evaluate_and_plot)
+        1    0.000    0.000    0.995    0.995 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\variables\__init__.py:1(<module>)
+        1    0.000    0.000    0.993    0.993 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\variables\base.py:1(<module>)
+        1    0.001    0.001    0.915    0.915 C:\Users\jayes\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\_dynamo\variables\builder.py:1(<module>)
+      778    0.025    0.000    0.884    0.001 <frozen importlib._bootstrap_external>:1007(get_code)
+
+
