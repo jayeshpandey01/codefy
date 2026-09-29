@@ -2,6 +2,10 @@ import type { Finding } from "./findings.js";
 import type { WorkspaceGraph } from "./graph.js";
 import type {
   AuditEventRead,
+  ListSastScansParams,
+  ListScansParams,
+  PaginationParams,
+  PlatformStatsRead,
   SASTScanCreate,
   SastProfilesResponse,
   ScanCreate,
@@ -10,6 +14,7 @@ import type {
   TargetCreate,
   TargetRead,
 } from "./orchestrator.js";
+import type { AuthSession, DeveloperApiKey, UserAccount } from "./persistence.js";
 import type { TaintTrace } from "./taint.js";
 
 interface BaseMessage {
@@ -88,6 +93,22 @@ export type BridgeMessage =
       readonly target: TargetRead;
     })
   | (BaseMessage & {
+      readonly type: "list-targets-request";
+      readonly params?: PaginationParams;
+    })
+  | (BaseMessage & {
+      readonly type: "list-targets-result";
+      readonly targets: readonly TargetRead[];
+    })
+  | (BaseMessage & {
+      readonly type: "get-target-request";
+      readonly targetId: string;
+    })
+  | (BaseMessage & {
+      readonly type: "get-target-result";
+      readonly target: TargetRead;
+    })
+  | (BaseMessage & {
       readonly type: "submit-remote-scan-request";
       readonly scan: ScanCreate;
       readonly idempotencyKey?: string;
@@ -95,6 +116,14 @@ export type BridgeMessage =
   | (BaseMessage & {
       readonly type: "submit-remote-scan-result";
       readonly scan: ScanRead;
+    })
+  | (BaseMessage & {
+      readonly type: "list-scans-request";
+      readonly params?: ListScansParams;
+    })
+  | (BaseMessage & {
+      readonly type: "list-scans-result";
+      readonly scans: readonly ScanRead[];
     })
   | (BaseMessage & {
       readonly type: "get-remote-scan-request";
@@ -113,6 +142,14 @@ export type BridgeMessage =
       readonly scan: ScanRead;
     })
   | (BaseMessage & {
+      readonly type: "retry-scan-request";
+      readonly scanId: string;
+    })
+  | (BaseMessage & {
+      readonly type: "retry-scan-result";
+      readonly scan: ScanRead;
+    })
+  | (BaseMessage & {
       readonly type: "get-remote-scan-result-request";
       readonly scanId: string;
     })
@@ -125,6 +162,11 @@ export type BridgeMessage =
       readonly type: "list-audit-events-result";
       readonly events: readonly AuditEventRead[];
     })
+  | (BaseMessage & { readonly type: "get-platform-stats-request" })
+  | (BaseMessage & {
+      readonly type: "get-platform-stats-result";
+      readonly stats: PlatformStatsRead;
+    })
   | (BaseMessage & {
       readonly type: "poll-remote-scan-request";
       readonly scanId: string;
@@ -133,6 +175,31 @@ export type BridgeMessage =
       readonly type: "poll-remote-scan-result";
       readonly scan: ScanRead;
       readonly result?: ScanResultRead;
+    })
+  | (BaseMessage & {
+      /** Poll several scans of one run (all DAST or all SAST) until all are terminal. */
+      readonly type: "poll-remote-scans-request";
+      readonly scanIds: readonly string[];
+      readonly kind: "dast" | "sast";
+      /** Lets the host poll the whole run with one list request per tick. */
+      readonly targetId?: string;
+      /**
+       * Correlates poll-remote-scans-progress events. Deliberately separate from
+       * requestId: a message carrying the requestId resolves the pending request.
+       */
+      readonly pollId: string;
+    })
+  | (BaseMessage & {
+      readonly type: "poll-remote-scans-progress";
+      readonly pollId: string;
+      readonly scans: readonly ScanRead[];
+    })
+  | (BaseMessage & {
+      readonly type: "poll-remote-scans-result";
+      readonly results: readonly {
+        readonly scan: ScanRead;
+        readonly result?: ScanResultRead;
+      }[];
     })
   | (BaseMessage & { readonly type: "get-sast-profiles-request" })
   | (BaseMessage & {
@@ -149,6 +216,14 @@ export type BridgeMessage =
       readonly scan: ScanRead;
     })
   | (BaseMessage & {
+      readonly type: "list-sast-scans-request";
+      readonly params?: ListSastScansParams;
+    })
+  | (BaseMessage & {
+      readonly type: "list-sast-scans-result";
+      readonly scans: readonly ScanRead[];
+    })
+  | (BaseMessage & {
       readonly type: "get-sast-scan-request";
       readonly scanId: string;
     })
@@ -162,6 +237,14 @@ export type BridgeMessage =
     })
   | (BaseMessage & {
       readonly type: "cancel-sast-scan-result";
+      readonly scan: ScanRead;
+    })
+  | (BaseMessage & {
+      readonly type: "retry-sast-scan-request";
+      readonly scanId: string;
+    })
+  | (BaseMessage & {
+      readonly type: "retry-sast-scan-result";
       readonly scan: ScanRead;
     })
   | (BaseMessage & {
@@ -186,6 +269,120 @@ export type BridgeMessage =
       readonly findings: readonly Finding[];
     })
   | (BaseMessage & {
+      readonly type: "auth-login-request";
+      readonly email: string;
+      readonly password: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-login-result";
+      readonly session: AuthSession;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-register-request";
+      readonly name: string;
+      readonly email: string;
+      readonly password: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-register-result";
+      readonly status: "authenticated" | "pending_verification";
+      readonly email: string;
+      readonly session?: AuthSession;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-verify-email-request";
+      readonly email: string;
+      readonly code: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-verify-email-result";
+      readonly session: AuthSession;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-resend-code-request";
+      readonly email: string;
+    })
+  | (BaseMessage & { readonly type: "auth-resend-code-result" })
+  | (BaseMessage & {
+      readonly type: "auth-forgot-password-request";
+      readonly email: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-forgot-password-result";
+      readonly ok: boolean;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-verify-reset-otp-request";
+      readonly email: string;
+      readonly code: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-verify-reset-otp-result";
+      readonly ok: boolean;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-reset-password-request";
+      readonly email: string;
+      readonly code: string;
+      readonly newPassword: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-reset-password-result";
+      readonly ok: boolean;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-list-api-keys-request";
+      readonly token: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-list-api-keys-result";
+      readonly keys: readonly DeveloperApiKey[];
+    })
+  | (BaseMessage & {
+      readonly type: "auth-create-api-key-request";
+      readonly token: string;
+      readonly name: string;
+      readonly expiresDays?: number;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-create-api-key-result";
+      readonly key: { readonly key: string; readonly name: string; readonly id: string };
+    })
+  | (BaseMessage & {
+      readonly type: "auth-revoke-api-key-request";
+      readonly token: string;
+      readonly keyId: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-revoke-api-key-result";
+      readonly ok: boolean;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-get-profile-request";
+      readonly token: string;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-get-profile-result";
+      readonly profile: UserAccount;
+    })
+  | (BaseMessage & { readonly type: "persistence-load-request" })
+  | (BaseMessage & {
+      readonly type: "persistence-load-result";
+      /** Whole persisted blob as last saved, or null if nothing saved yet
+       * (first run) -- see apps/vscode-extension/src/db/database.ts, the
+       * extension-host-backed counterpart to the desktop app's IndexedDB
+       * database.ts. Shape is owned entirely by that db layer, not by the
+       * bridge protocol itself. */
+      readonly data: unknown;
+    })
+  | (BaseMessage & {
+      readonly type: "persistence-save-request";
+      /** Fire-and-forget -- no persistence-save-result. The webview holds
+       * the authoritative in-memory copy already; this just flushes it to
+       * context.globalState so it survives the extension host restarting. */
+      readonly data: unknown;
+    })
+  | (BaseMessage & {
       readonly type: "error";
       readonly message: string;
       readonly code?: string;
@@ -195,6 +392,38 @@ export type BridgeMessage =
       readonly hint?: string;
       readonly fix?: string;
       readonly link?: string;
+    })
+  | (BaseMessage & {
+      readonly type: "update-notice";
+      readonly notice: UpdateNotice;
+    })
+  | (BaseMessage & { readonly type: "update-install-request" })
+  | (BaseMessage & { readonly type: "update-restart-request" })
+  | (BaseMessage & {
+      readonly type: "update-dismiss-request";
+      readonly version: string;
     });
 
 export type BridgeMessageType = BridgeMessage["type"];
+
+/**
+ * host -> ui, carried by an "update-notice" BridgeMessage. See
+ * docs/RELEASE-PIPELINE.md for the flow this drives: the desktop host emits
+ * "available" -> "progress" -> "ready" (or "error") around an
+ * update:install/update:restart round trip with the user; both hosts emit
+ * "updated" once, right after a version bump they detect on their own side
+ * (the Tauri updater plugin for desktop, context.globalState for the
+ * extension). packages/ui renders all five kinds from one <UpdateBanner>,
+ * with no host-specific branching.
+ */
+export type UpdateNotice =
+  | { readonly kind: "available"; readonly version: string; readonly notes: string }
+  | { readonly kind: "progress"; readonly downloaded: number; readonly total?: number }
+  | { readonly kind: "ready"; readonly version: string }
+  | { readonly kind: "error"; readonly message: string }
+  | {
+      readonly kind: "updated";
+      readonly from: string;
+      readonly to: string;
+      readonly notes: string;
+    };

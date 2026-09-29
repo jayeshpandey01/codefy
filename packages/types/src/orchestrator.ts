@@ -5,10 +5,28 @@ export type ScanProfile =
   | "web-discovery"
   | "network-portscan"
   | "fast-portscan"
+  | "smart-portscan"
   | "content-discovery"
-  | "vuln-assessment";
+  | "deep-content-discovery"
+  | "web-crawl"
+  | "vuln-assessment"
+  | "xss-scan"
+  | "dast-zap"
+  | "oob-interaction"
+  | "dns-recon"
+  | "subdomain-takeover"
+  | "waf-detect"
+  | "cors-audit"
+  | "crlf-scan"
+  | "ssti-scan";
 
-export type SastProfile = "sast-joern" | "sast-semgrep" | "sast-trufflehog";
+export type SastProfile =
+  | "sast-joern"
+  | "sast-semgrep"
+  | "sast-trufflehog"
+  | "sast-codeql"
+  | "sast-gitleaks"
+  | "sast-bandit";
 
 export type AllScanProfile = ScanProfile | SastProfile;
 
@@ -29,6 +47,7 @@ export interface TargetCreate {
   value: string;
   owner_reference: string;
   authorization_reference: string;
+  target_type?: "network" | "source_code";
 }
 
 export interface TargetRead {
@@ -158,18 +177,113 @@ export interface ScanResultRead {
   error_logs: string | null;
 }
 
+export interface PaginationParams {
+  skip?: number;
+  limit?: number;
+}
+
+export interface ListScansParams extends PaginationParams {
+  status?: ScanStatus;
+  profile?: string;
+  target_id?: string;
+}
+
+export interface ListSastScansParams extends PaginationParams {
+  status?: string;
+  profile?: string;
+  target_id?: string;
+}
+
+export interface HealthLiveResponse {
+  status: string;
+}
+
+export interface HealthReadyResponse {
+  status: "ready" | "not_ready" | string;
+  database: "ok" | "unreachable" | string;
+}
+
+export interface PlatformStatsRead {
+  targets_count: number;
+  scans_count: number;
+  results_count: number;
+  scans_by_status: {
+    completed?: number;
+    failed?: number;
+    running?: number;
+    queued?: number;
+    cancelled?: number;
+    dispatching?: number;
+    [status: string]: number | undefined;
+  };
+  scans_by_profile: Record<string, number>;
+}
+
+export interface ControllerJobClaim {
+  id: string;
+  target: string;
+  profile: string;
+  authorization_reference: string;
+}
+
+export interface ControllerJobCompletePayload {
+  summary: {
+    risk_summary?: {
+      critical?: number;
+      high?: number;
+      medium?: number;
+      low?: number;
+      info?: number;
+      total?: number;
+      [key: string]: unknown;
+    };
+    findings?: Array<{
+      id?: string;
+      code?: string;
+      severity?: string;
+      title: string;
+      description?: string;
+      evidence?: unknown;
+      remediation?: string;
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+export interface ControllerJobFailPayload {
+  reason: string;
+}
+
+export interface ControllerJobStatus {
+  id: string;
+  status: string;
+}
+
+export interface ControllerHmacHeaders {
+  "X-Controller-Timestamp": string;
+  "X-Controller-Nonce": string;
+  "X-Controller-Signature": string;
+  "Content-Type": string;
+}
+
 export interface AuditEventRead {
   id: string;
   action: string;
   resource_type: string;
   resource_id: string;
   detail: string | null;
+  created_at?: string;
 }
 
 export interface OrchestratorClientConfig {
   baseUrl?: string;
   apiKey?: string;
   adminApiKey?: string;
+  authMode?: "api_key" | "bearer";
+  jwtToken?: string;
+  bearerToken?: string;
+  controllerSecret?: string;
   fetchFn?: FetchLike;
   timeoutMs?: number;
 }

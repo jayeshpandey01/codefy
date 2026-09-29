@@ -131,4 +131,31 @@ describe("runChatQuery", () => {
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0]?.id).toBe("F-10291");
   });
+
+  it('handles "explain me python developer" cleanly without hijacking selectedFindingId', () => {
+    const result = runChatQuery("explain me python developer", FIXTURE_FINDINGS, {
+      selectedFindingId: "F-10291",
+    });
+    expect(result.capability).toBe("SUPPORTED");
+    expect(result.intent).toBe("GENERAL_ASSISTANCE");
+    expect(result.findings).toHaveLength(0); // MUST NOT return F-10291!
+    expect(result.explanation).toContain("Python Developer");
+  });
+
+  it('handles "can you redirect to the agent.py file" as CODE_NAVIGATION', () => {
+    const mockGraph = {
+      nodes: [
+        { id: "agent.py", label: "agent.py", type: "file" as const, filePath: "agent.py" },
+      ],
+      edges: [],
+    };
+    const result = runChatQuery("can you redirect to the agent.py file", FIXTURE_FINDINGS, {
+      workspaceGraph: mockGraph,
+    });
+    expect(result.capability).toBe("SUPPORTED");
+    expect(result.intent).toBe("CODE_NAVIGATION");
+    expect(result.targetFilePath).toBe("agent.py");
+    expect(result.graphViewMode).toBe("graph");
+    expect(result.explanation).toContain("agent.py");
+  });
 });

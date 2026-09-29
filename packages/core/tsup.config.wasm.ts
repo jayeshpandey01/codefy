@@ -15,7 +15,12 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   dts: false,
-  external: ["@ast-grep/napi", "@ast-grep/wasm", "web-tree-sitter"],
+  external: [
+    "@ast-grep/napi",
+    "@ast-grep/wasm",
+    "web-tree-sitter",
+    "web-tree-sitter-legacy",
+  ],
   esbuildOptions(options) {
     options.conditions = ["whoami-wasm"];
   },

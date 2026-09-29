@@ -47,6 +47,7 @@
     "@whoami/types": "workspace:*",
     "tree-sitter-wasms": "^0.1.11",
     "web-tree-sitter": "catalog:",
+    "web-tree-sitter-legacy": "npm:web-tree-sitter@0.24.7",
     "yaml": "^2.6.1"
   },
   "peerDependencies": {

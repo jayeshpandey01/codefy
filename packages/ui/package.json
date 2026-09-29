@@ -33,7 +33,10 @@
     "react-dom": "^19.0.0",
     "@xyflow/react": "^12.4.0",
     "elkjs": "^0.12.0",
-    "cytoscape": "^3.30.4"
+    "cytoscape": "^3.30.4",
+    "marked": "^15.0.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^5.0.8"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

@@ -59,16 +59,16 @@ export function ResizableSplitter({
       onDoubleClick={onReset}
       className={`relative flex w-1.5 shrink-0 items-center justify-center cursor-col-resize select-none transition-colors duration-150 ${
         isDragging
-          ? "bg-[#0E639C]/70"
-          : "hover:bg-[#007ACC]/30 active:bg-[#0E639C]/70"
+          ? "bg-vscode-primary/70"
+          : "hover:bg-vscode-focus/30 active:bg-vscode-primary/70"
       } ${className}`}
     >
       {/* Centered 3-dot splitter grip handle matching Image 1 */}
       <div
-        className={`flex items-center justify-center text-[#6E7681] transition-colors ${
+        className={`flex items-center justify-center text-vscode-dim transition-colors ${
           isDragging
             ? "text-white"
-            : "hover:text-[#D4D4D4] group-hover:text-[#D4D4D4]"
+            : "hover:text-vscode-fg group-hover:text-vscode-fg"
         }`}
       >
         <GripVerticalIcon size={14} className="opacity-80 hover:opacity-100" />

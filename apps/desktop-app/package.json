@@ -14,28 +14,33 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@whoami/types": "workspace:*",
-    "@whoami/ui": "workspace:*",
-    "@whoami/core": "workspace:*",
     "@ast-grep/wasm": "catalog:",
-    "web-tree-sitter": "catalog:",
-    "tree-sitter-wasms": "^0.1.11",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",
-    "@tauri-apps/plugin-fs": "^2.5.0"
+    "@tauri-apps/plugin-fs": "^2.5.0",
+    "@tauri-apps/plugin-http": "~2.7.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.12.0",
+    "@whoami/core": "workspace:*",
+    "@whoami/types": "workspace:*",
+    "@whoami/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "0.26.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.0",
-    "vite-plugin-wasm": "^3.4.1",
-    "vite-plugin-static-copy": "^2.2.0",
+    "rimraf": "^6.0.1",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-typescript": "^0.23.2",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "rimraf": "^6.0.1"
+    "vite": "^6.0.0",
+    "vite-plugin-static-copy": "^2.2.0",
+    "vite-plugin-wasm": "^3.4.1",
+    "vitest": "catalog:"
   }
 }

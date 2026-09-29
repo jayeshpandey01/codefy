@@ -1,4 +1,4 @@
-import type Parser from "web-tree-sitter";
+import type Parser from "web-tree-sitter-legacy";
 
 import { hashContent } from "./content-hash.js";
 import { getParser } from "./registry.js";
@@ -15,6 +15,15 @@ interface CacheEntry {
   readonly tree: Parser.Tree;
 }
 
+/**
+ * Caps how many parsed trees stay pinned in memory at once. A single-file
+ * edit-and-reanalyze loop never comes close to this; a full workspace scan
+ * over thousands of files would otherwise pin every tree (WASM-backed
+ * native memory outside V8's heap limits) for the rest of the process's
+ * life, compounding across repeated scans.
+ */
+const MAX_CACHE_ENTRIES = 500;
+
 const cache = new Map<string, CacheEntry>();
 
 export async function parseWithCache(
@@ -25,6 +34,9 @@ export async function parseWithCache(
   const contentHash = hashContent(sourceCode);
   const existing = cache.get(filePath);
   if (existing && existing.contentHash === contentHash) {
+    // Refresh recency for the LRU eviction below.
+    cache.delete(filePath);
+    cache.set(filePath, existing);
     return existing.tree;
   }
 
@@ -34,7 +46,15 @@ export async function parseWithCache(
     throw new Error(`web-tree-sitter failed to parse ${filePath}`);
   }
 
+  cache.delete(filePath);
   cache.set(filePath, { contentHash, tree });
+
+  while (cache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+
   return tree;
 }
 

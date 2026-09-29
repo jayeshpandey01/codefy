@@ -1,4 +1,7 @@
-export { createAstGrepAdapter } from "./ast-grep/index.js";
+export {
+  configureAstGrepGrammarBaseUrl,
+  createAstGrepAdapter,
+} from "./ast-grep/index.js";
 export type { AstGrepMatch, IAstGrepAdapter } from "./ast-grep/index.js";
 
 export { createAnalysisEngine } from "./engine.js";
@@ -58,12 +61,40 @@ export {
   DEFAULT_ORCHESTRATOR_URL,
   sanitizeTargetHostname,
   normalizeRemoteFindings,
+  buildQueryString,
+  generateControllerHmacHeaders,
+  generateControllerNonce,
+  signControllerMessage,
+  sha256Hex,
+  cleanCredential,
+  handleOrchestratorMessage,
+  isOrchestratorRequest,
+  ORCHESTRATOR_REQUEST_TYPES,
+  ORCHESTRATOR_ORIGIN_ALLOWLIST,
+  validateOrchestratorUrl,
+  resolveOrchestratorUrl,
 } from "./orchestrator/index.js";
-export type { PollScanOptions } from "./orchestrator/index.js";
+export type {
+  PollScanOptions,
+  GenerateHmacOptions,
+  NormalizeRemoteFindingsOptions,
+  OrchestratorUrlValidation,
+} from "./orchestrator/index.js";
 
 export { parseQuery } from "./query/intent.js";
 export { executeQuery, runChatQuery } from "./query/executor.js";
 export type { ExecuteQueryOptions } from "./query/executor.js";
 export { pickGraphViewMode } from "./query/graph-view-picker.js";
-export { HostedLlmClient } from "./llm/hosted-client.js";
+export { HostedLlmClient, DEFAULT_AI_GATEWAY_URL } from "./llm/hosted-client.js";
 export type { HostedLlmClientOptions } from "./llm/hosted-client.js";
+export { GatewayAuthClient } from "./auth/gateway-auth-client.js";
+export type {
+  GatewayAuthClientOptions,
+  RegisterInput,
+  RegisterResult,
+} from "./auth/gateway-auth-client.js";
+export { generateOkfBundle } from "./okf/index.js";
+
+export { generateMarkdownReport } from "./report/index.js";
+export { generateFixDiffText, generateUnifiedDiff } from "./report/diff-suggestion.js";
+export type { FixDiffText } from "./report/diff-suggestion.js";

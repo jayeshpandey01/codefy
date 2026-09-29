@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { Finding } from "@whoami/types";
+import type { Finding, ScanResultRead } from "@whoami/types";
 import { IssueTreeSidebar } from "../components/IssueTreeSidebar.js";
+import { convertScanResultToFindings } from "../components/RemoteScanPanel.js";
 
 function buildTestFindings(): Finding[] {
   return [
@@ -192,5 +193,160 @@ describe("IssueTreeSidebar", () => {
     fireEvent.click(screen.getByTitle("Issues Menu (Scan Modes, Grouping, Actions)"));
     fireEvent.click(screen.getByText("Local (Offline)"));
     expect(handleModeChange).toHaveBeenCalledWith("local-offline");
+  });
+
+  it("directly switches between All, SAST, and DAST via visible top pills without opening ≡ menu", () => {
+    const handleModeChange = vi.fn();
+    render(
+      <IssueTreeSidebar
+        findings={buildTestFindings()}
+        onSelectFinding={vi.fn()}
+        activeScanMode="all"
+        onScanModeChange={handleModeChange}
+      />,
+    );
+
+    // Direct SAST pill is visible
+    const sastPill = screen.getByTitle("Filter to SAST (Static Code Analysis & Secrets)");
+    expect(sastPill).toBeTruthy();
+    fireEvent.click(sastPill);
+    expect(handleModeChange).toHaveBeenCalledWith("local-offline");
+
+    // Direct DAST pill is visible
+    const dastPill = screen.getByTitle("Filter to DAST (Dynamic Endpoints & Probes)");
+    expect(dastPill).toBeTruthy();
+    fireEvent.click(dastPill);
+    expect(handleModeChange).toHaveBeenCalledWith("orchestrator");
+
+    // All pill is visible
+    const allPill = screen.getByTitle("Show All Issues (SAST & DAST)");
+    expect(allPill).toBeTruthy();
+    fireEvent.click(allPill);
+  });
+
+  it("renders both SAST and DAST sections in All mode and allows collapse/expand", () => {
+    render(
+      <IssueTreeSidebar
+        findings={buildTestFindings()}
+        onSelectFinding={vi.fn()}
+        activeScanMode="all"
+      />,
+    );
+
+    // Both section headers are present
+    expect(screen.getByText("SAST (Static Analysis)")).toBeTruthy();
+    expect(screen.getByText("DAST (Dynamic Analysis)")).toBeTruthy();
+
+    // Findings from both sections are visible
+    expect(screen.getByText("Syntax Error (tsx) at line 20")).toBeTruthy();
+    expect(screen.getByText("CVE-2024-1234 Remote Code Execution in API Gateway")).toBeTruthy();
+
+    // Collapse SAST section
+    fireEvent.click(screen.getByText("SAST (Static Analysis)"));
+    expect(screen.queryByText("Syntax Error (tsx) at line 20")).toBeNull();
+    // DAST finding remains visible
+    expect(screen.getByText("CVE-2024-1234 Remote Code Execution in API Gateway")).toBeTruthy();
+
+    // Collapse DAST section
+    fireEvent.click(screen.getByText("DAST (Dynamic Analysis)"));
+    expect(screen.queryByText("CVE-2024-1234 Remote Code Execution in API Gateway")).toBeNull();
+  });
+
+  it("does not render the bottom dock and maximizes tree viewport", () => {
+    render(
+      <IssueTreeSidebar
+        findings={buildTestFindings()}
+        onSelectFinding={vi.fn()}
+        activeScanMode="local"
+      />,
+    );
+
+    expect(screen.queryByText("Scan Engines & Status")).toBeNull();
+  });
+
+  it("properly categorizes DAST findings with domain paths like nasa.gov:1 into DAST pill and section", () => {
+    const findingsWithDastDomain: Finding[] = [
+      ...buildTestFindings().slice(0, 2), // 2 local SAST syntax errors
+      {
+        id: "remote-scan-nasa-1",
+        ruleId: "remote-sec-header-missing-csp",
+        code: "SEC_HEADER_MISSING_CSP",
+        scope: "code", // even if legacy/misclassified scope was 'code'
+        status: "confirmed",
+        severity: "low",
+        title: "Content-Security-Policy header is missing",
+        description: "CSP header is missing on nasa.gov",
+        createdAt: "2026-09-18T12:00:00.000Z",
+        trace: {
+          sinkClass: "ssrf",
+          steps: [
+            {
+              role: "source",
+              label: "Source: nasa.gov",
+              filePath: "nasa.gov",
+              line: 1,
+            },
+            {
+              role: "sink",
+              label: "Content-Security-Policy header is missing (SEC_HEADER_MISSING_CSP)",
+              filePath: "nasa.gov",
+              line: 1,
+            },
+          ],
+        },
+      },
+    ];
+
+    render(
+      <IssueTreeSidebar
+        findings={findingsWithDastDomain}
+        onSelectFinding={vi.fn()}
+        activeScanMode="all"
+      />,
+    );
+
+    // SAST pill should show 2, DAST pill should show 1 (NOT SAST 3, DAST 0)
+    const sastPill = screen.getByTitle("Filter to SAST (Static Code Analysis & Secrets)");
+    const dastPill = screen.getByTitle("Filter to DAST (Dynamic Endpoints & Probes)");
+
+    expect(sastPill.textContent).toContain("2");
+    expect(dastPill.textContent).toContain("1");
+  });
+
+  it("convertScanResultToFindings accurately classifies DAST findings with check codes as endpoint scope", () => {
+    const mockResult: ScanResultRead = {
+      id: "scan-dast-nasa",
+      scan_job_id: "job-nasa-1",
+      created_at: "2026-09-18T12:00:00.000Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        findings: [
+          {
+            code: "SEC_HEADER_MISSING_CSP",
+            title: "Content-Security-Policy header is missing",
+            severity: "low",
+            description: "Missing header",
+            host: "nasa.gov",
+            matched_at: "https://nasa.gov",
+          },
+        ],
+      },
+    };
+
+    // Auto-inferred
+    const converted = convertScanResultToFindings(mockResult, "nasa.gov");
+    expect(converted.length).toBe(1);
+    expect(converted[0]?.scope).toBe("endpoint");
+    expect(converted[0]?.code).toBe("SEC_HEADER_MISSING_CSP");
+    expect(converted[0]?.ruleId).toBe("remote-sec-header-missing-csp");
+    expect(converted[0]?.trace.steps[0]?.filePath).toBe("https://nasa.gov");
+
+    // With explicit profile
+    const convertedWithProfile = convertScanResultToFindings(mockResult, "nasa.gov", {
+      isSast: false,
+      profile: "recon",
+    });
+    expect(convertedWithProfile[0]?.scope).toBe("endpoint");
   });
 });

@@ -24,25 +24,25 @@ export function GroupContainerNode(props: NodeProps): ReactElement {
   return (
     <div
       className={[
-        "h-full w-full rounded-xl border bg-[#181818]/70 p-3 shadow-inner backdrop-blur-md transition-colors duration-150 pointer-events-auto select-none",
+        "h-full w-full rounded-xl border bg-vscode-header/70 p-3 shadow-inner backdrop-blur-md transition-colors duration-150 pointer-events-auto select-none",
         props.selected
-          ? "border-[#007ACC] ring-1 ring-[#007ACC]/50"
+          ? "border-vscode-focus ring-1 ring-vscode-focus/50"
           : hasIssues
             ? isCritical
-              ? "border-[#F14C4C]/40 hover:border-[#F14C4C]"
-              : "border-[#CCA700]/40 hover:border-[#CCA700]"
-            : "border-[#303031] hover:border-[#444444]",
+              ? "border-severity-critical/40 hover:border-severity-critical"
+              : "border-severity-high/40 hover:border-severity-high"
+            : "border-vscode-border hover:border-vscode-border",
       ].join(" ")}
     >
       {/* Group Header Bar */}
-      <div className="flex items-center justify-between border-b border-[#303031] pb-2 mb-2">
+      <div className="flex items-center justify-between border-b border-vscode-border pb-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <FileCodeIcon size={14} className="text-[#75BEFF] shrink-0" />
+          <FileCodeIcon size={14} className="text-severity-medium shrink-0" />
           <div className="flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-[#D4D4D4] truncate font-sans">
+            <span className="text-xs font-semibold text-vscode-fg truncate font-sans">
               {fileBasename}
             </span>
-            <span className="text-[10px] font-mono text-[#858585] truncate max-w-[200px]" title={data.filePath}>
+            <span className="text-[10px] font-mono text-vscode-muted truncate max-w-[200px]" title={data.filePath}>
               {data.filePath}
             </span>
           </div>
@@ -53,8 +53,8 @@ export function GroupContainerNode(props: NodeProps): ReactElement {
             <span
               className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider ${
                 isCritical
-                  ? "bg-[#5A1D1D] text-[#F14C4C] border border-[#BE1100]"
-                  : "bg-[#382C00] text-[#CCA700] border border-[#CCA700]/50"
+                  ? "bg-[#5A1D1D] text-severity-critical border border-[#BE1100]"
+                  : "bg-severity-high-bg text-severity-high border border-severity-high/50"
               }`}
             >
               {data.findingCount} flaw{data.findingCount === 1 ? "" : "s"}
@@ -71,7 +71,7 @@ export function GroupContainerNode(props: NodeProps): ReactElement {
                 data.onToggleCollapse?.(props.id, next);
               }}
               title={collapsed ? "Expand Group" : "Collapse Group"}
-              className="p-1 text-[#858585] hover:text-white rounded hover:bg-[#2A2D2E] transition-colors cursor-pointer"
+              className="p-1 text-vscode-muted hover:text-vscode-fg rounded hover:bg-vscode-card-hover transition-colors cursor-pointer"
             >
               <ChevronDownIcon
                 size={12}

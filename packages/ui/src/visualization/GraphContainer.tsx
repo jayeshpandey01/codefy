@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import {
   Background,
   Controls,
@@ -12,6 +12,7 @@ import {
   type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useTheme } from "../components/ThemeContext.js";
 import type { Finding, GraphEdge, GraphNode, TaintTrace } from "@whoami/types";
 import { useGraphLayout } from "./useGraphLayout.js";
 import { SourceNode } from "./nodes/SourceNode.js";
@@ -27,6 +28,14 @@ import { InteractiveStepEdge } from "./edges/InteractiveStepEdge.js";
 import type { TaintNodeData } from "./nodes/SourceNode.js";
 import { GraphLegend } from "../components/GraphLegend.js";
 import { findingsToInterconnectedGraph } from "./graph-transformers.js";
+import {
+  GRAPH_MIN_ZOOM,
+  GRAPH_MAX_ZOOM,
+  GRAPH_DEFAULT_ZOOM,
+  GRAPH_DEFAULT_FIT_VIEW_OPTIONS,
+} from "./zoom-config.js";
+import { GraphZoomControls } from "./GraphZoomControls.js";
+import { GraphFocusHelper } from "./GraphFocusHelper.js";
 
 const nodeTypes: NodeTypes = {
   source: SourceNode,
@@ -109,6 +118,7 @@ export interface GraphContainerProps {
   readonly onJumpToLine?: (filePath: string, line: number) => void;
   readonly onRunPoc?: (finding: Finding) => void;
   readonly onApplyFix?: (finding: Finding) => void;
+  readonly targetFilePath?: string;
 }
 
 /**
@@ -125,7 +135,16 @@ export function GraphContainer({
   onJumpToLine,
   onRunPoc,
   onApplyFix,
+  targetFilePath,
 }: GraphContainerProps): ReactElement {
+  // React Flow's own built-in dark/light chrome (canvas background,
+  // minimap, controls, connection lines) is independent of our
+  // data-theme CSS variables -- colorMode must be set explicitly to
+  // whichever kind the active app theme is, or it silently defaults to
+  // its own hardcoded dark palette regardless of the selected theme.
+  const { theme: activeThemeId, themes: allThemes } = useTheme();
+  const reactFlowColorMode = allThemes.find((t) => t.id === activeThemeId)?.kind ?? "dark";
+
   const [activeHoverNodeId, setActiveHoverNodeId] = useState<string | null>(null);
 
   const { nodes: graphNodes, edges: graphEdges } = useMemo(() => {
@@ -140,6 +159,23 @@ export function GraphContainer({
     }
     return { nodes: [], edges: [] };
   }, [trace, findings, groupByFile, showAnnotations]);
+
+  // Focus and select node matching targetFilePath (e.g. from Quick Search)
+  useEffect(() => {
+    if (!targetFilePath) return;
+    const norm = targetFilePath.replace(/\\/g, "/");
+    const matched = graphNodes.find((n) => {
+      const nNorm = n.filePath?.replace(/\\/g, "/");
+      return (
+        n.filePath === targetFilePath ||
+        (nNorm && (nNorm === norm || norm.endsWith(nNorm) || nNorm.endsWith(norm))) ||
+        n.id.includes(norm)
+      );
+    });
+    if (matched) {
+      setActiveHoverNodeId(matched.id);
+    }
+  }, [targetFilePath, graphNodes]);
 
   const { graph, isLayouting, error } = useGraphLayout(
     graphNodes,
@@ -298,7 +334,7 @@ export function GraphContainer({
 
   if (error) {
     return (
-      <div role="alert" className="p-4 text-sm text-[#F14C4C]">
+      <div role="alert" className="p-4 text-sm text-severity-critical">
         Failed to lay out graph: {error.message}
       </div>
     );
@@ -306,7 +342,7 @@ export function GraphContainer({
 
   if (graphNodes.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-xs text-[#858585]">
+      <div className="flex h-full items-center justify-center p-4 text-xs text-vscode-muted">
         No graph nodes to display.
       </div>
     );
@@ -314,26 +350,26 @@ export function GraphContainer({
 
   if (!graph || isLayouting) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-xs text-[#858585]">
+      <div className="flex h-full items-center justify-center p-4 text-xs text-vscode-muted">
         Laying out interconnected data flow graph…
       </div>
     );
   }
 
   return (
-    <div className="relative w-full h-full bg-[#1E1E1E] font-sans overflow-hidden select-none">
+    <div className="relative w-full h-full bg-vscode-bg font-sans overflow-hidden select-none">
       {/* Top Left Breadcrumb Bar */}
-      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-1.5 text-xs text-[#858585] font-medium bg-[#252526]/90 backdrop-blur-md px-2.5 py-1 rounded border border-[#303031] shadow-sm">
-        <span className="text-[#75BEFF] font-semibold">Sources</span>
-        <span className="text-[#5A5A5A]">&gt;</span>
-        <span className="text-[#89D185] font-semibold">Sanitizers</span>
-        <span className="text-[#5A5A5A]">&gt;</span>
-        <span className="text-[#F14C4C] font-semibold">Sinks</span>
+      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-1.5 text-xs text-vscode-muted font-medium bg-vscode-card px-2.5 py-1 rounded border border-vscode-border shadow-sm">
+        <span className="text-severity-medium font-semibold">Sources</span>
+        <span className="text-vscode-dim">&gt;</span>
+        <span className="text-severity-low font-semibold">Sanitizers</span>
+        <span className="text-vscode-dim">&gt;</span>
+        <span className="text-severity-critical font-semibold">Sinks</span>
         {activeHoverNodeId && (
           <button
             type="button"
             onClick={() => setActiveHoverNodeId(null)}
-            className="ml-2 rounded bg-[#094771] px-1.5 py-0.2 text-[10px] font-mono text-white hover:bg-[#1177BB] cursor-pointer"
+            className="ml-2 rounded bg-vscode-focus px-1.5 py-0.2 text-[10px] font-mono text-white hover:bg-vscode-primary-hover cursor-pointer"
           >
             Clear Focus
           </button>
@@ -350,17 +386,21 @@ export function GraphContainer({
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        colorMode="dark"
+        onlyRenderVisibleElements={false}
+        colorMode={reactFlowColorMode}
+        minZoom={GRAPH_MIN_ZOOM}
+        maxZoom={GRAPH_MAX_ZOOM}
+        defaultViewport={{ x: 0, y: 0, zoom: GRAPH_DEFAULT_ZOOM }}
         fitView
+        fitViewOptions={GRAPH_DEFAULT_FIT_VIEW_OPTIONS}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#333333" gap={18} />
+        <Background color="var(--color-vscode-border)" gap={18} />
         {/* Controls positioned cleanly at bottom-left */}
-        <Controls
-          position="bottom-left"
-          showInteractive={false}
-          className="!border-[#303031] !bg-[#252526] !shadow-md !rounded"
-        />
+        <GraphZoomControls position="bottom-left" />
+        <GraphFocusHelper targetNodeId={activeHoverNodeId} />
 
         {/* MiniMap positioned at top-right with custom role colors */}
         <MiniMap
@@ -376,7 +416,7 @@ export function GraphContainer({
             return "#3C3C3C";
           }}
           maskColor="rgba(30, 30, 30, 0.75)"
-          className="!border-[#303031] !bg-[#252526] !rounded-md !shadow-md !mt-2.5 !mr-2.5"
+          className="!border-vscode-border !bg-vscode-card !rounded-md !shadow-md !mt-2.5 !mr-2.5"
           style={{ width: 140, height: 90 }}
         />
       </ReactFlow>

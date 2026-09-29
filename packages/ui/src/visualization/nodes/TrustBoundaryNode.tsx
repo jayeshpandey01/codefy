@@ -5,27 +5,27 @@ import { ShieldAlertIcon, ShieldCheckIcon, LockIcon } from "../../components/Ico
 
 const ZONE_THEMES: Record<string, { bg: string; border: string; text: string; icon: typeof ShieldCheckIcon }> = {
   ingress: {
-    bg: "bg-[#04395E]/15",
-    border: "border-[#007ACC]/40",
-    text: "text-[#75BEFF]",
+    bg: "bg-vscode-card-selected/15",
+    border: "border-vscode-focus/40",
+    text: "text-severity-medium",
     icon: ShieldCheckIcon,
   },
   dmz: {
-    bg: "bg-[#382F00]/15",
-    border: "border-[#CCA700]/40",
+    bg: "bg-severity-high-bg/15",
+    border: "border-severity-high/40",
     text: "text-[#FFD700]",
     icon: LockIcon,
   },
   core: {
-    bg: "bg-[#181818]/60",
-    border: "border-[#3C3C3C]/80",
-    text: "text-[#D4D4D4]",
+    bg: "bg-vscode-header/60",
+    border: "border-vscode-border/80",
+    text: "text-vscode-fg",
     icon: LockIcon,
   },
   secure_vault: {
-    bg: "bg-[#3B1212]/20",
-    border: "border-[#F14C4C]/50",
-    text: "text-[#F14C4C]",
+    bg: "bg-severity-critical-bg/20",
+    border: "border-severity-critical/50",
+    text: "text-severity-critical",
     icon: ShieldAlertIcon,
   },
 };
@@ -45,11 +45,11 @@ export const TrustBoundaryNode = memo(function TrustBoundaryNode({
   return (
     <div
       className={`relative w-full h-full min-w-[300px] min-h-[160px] rounded-xl border-2 border-dashed ${theme.border} ${theme.bg} p-3 font-sans transition-colors duration-200 pointer-events-none select-none backdrop-blur-sm ${
-        selected ? "ring-2 ring-[#007ACC] shadow-2xl" : "shadow-md"
+        selected ? "ring-2 ring-vscode-focus shadow-2xl" : "shadow-md"
       }`}
     >
       {/* Top Header Tag */}
-      <div className="flex items-center justify-between pointer-events-auto pb-2 border-b border-[#303031]/60">
+      <div className="flex items-center justify-between pointer-events-auto pb-2 border-b border-vscode-border/60">
         <div className="flex items-center gap-2">
           <IconComponent size={14} className={theme.text} />
           <span className={`text-xs font-bold uppercase tracking-wider ${theme.text}`}>
@@ -57,14 +57,14 @@ export const TrustBoundaryNode = memo(function TrustBoundaryNode({
           </span>
         </div>
         {count > 0 && (
-          <span className="rounded-full bg-[#3B1212] border border-[#F14C4C]/60 px-2 py-0.5 text-[10px] font-mono font-bold text-[#F14C4C]">
+          <span className="rounded-full bg-severity-critical-bg border border-severity-critical/60 px-2 py-0.5 text-[10px] font-mono font-bold text-severity-critical">
             {count} Threat{count > 1 ? "s" : ""}
           </span>
         )}
       </div>
 
       {description && (
-        <div className="mt-1 text-[11px] text-[#858585] italic font-mono pointer-events-auto">
+        <div className="mt-1 text-[11px] text-vscode-muted italic font-mono pointer-events-auto">
           {description}
         </div>
       )}

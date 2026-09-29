@@ -162,6 +162,22 @@ describe("UnifiedScanHeader", () => {
     expect(handleSelectGraph).toHaveBeenCalledWith("control_flow");
   });
 
+  it("renders Left Sidebar toggle button and triggers callback", () => {
+    const handleToggleLeft = vi.fn();
+    render(
+      <UnifiedScanHeader
+        onToggleLeftSidebar={handleToggleLeft}
+        isLeftSidebarOpen={false}
+      />,
+    );
+
+    const toggleBtn = screen.getByRole("button", { name: "Show Primary Side Bar" });
+    expect(toggleBtn).toBeTruthy();
+
+    fireEvent.click(toggleBtn);
+    expect(handleToggleLeft).toHaveBeenCalledTimes(1);
+  });
+
   it("renders Right Section toggle button and triggers callback", () => {
     const handleToggleRight = vi.fn();
     render(
@@ -200,6 +216,22 @@ describe("UnifiedScanHeader", () => {
     expect(handleScanCloudSast).toHaveBeenCalledWith({
       folderPath: "/mock/cloud-project",
       profiles: ["sast-joern", "sast-semgrep", "sast-trufflehog"],
+      ruleTags: undefined,
     });
+  });
+
+  it("renders Search button and triggers onOpenSearch callback", () => {
+    const handleOpenSearch = vi.fn();
+    render(
+      <UnifiedScanHeader
+        onOpenSearch={handleOpenSearch}
+      />,
+    );
+
+    const searchBtn = screen.getByRole("button", { name: "Search files, folders, and issues" });
+    expect(searchBtn).toBeTruthy();
+
+    fireEvent.click(searchBtn);
+    expect(handleOpenSearch).toHaveBeenCalledTimes(1);
   });
 });

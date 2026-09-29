@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@11.10.0",
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "turbo run build",
@@ -14,7 +14,8 @@
     "type-check": "turbo run type-check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "clean": "turbo run clean && rimraf node_modules"
+    "clean": "turbo run clean && rimraf node_modules",
+    "version:sync": "node scripts/sync-version.mjs"
   },
   "devDependencies": {
     "turbo": "^2.10.4",

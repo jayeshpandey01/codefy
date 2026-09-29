@@ -47,5 +47,13 @@ export interface EngineWorkerScanError {
   readonly message: string;
 }
 
+export interface EngineWorkerScanDiagnostic {
+  readonly kind: "scan-diagnostic";
+  readonly requestId: string;
+  readonly level: "info" | "warn" | "error";
+  readonly message: string;
+}
+
 export type EngineWorkerOutboundMessage =
-  EngineWorkerScanProgress | EngineWorkerScanResult | EngineWorkerScanError;
+  EngineWorkerScanProgress | EngineWorkerScanResult | EngineWorkerScanError |
+  EngineWorkerScanDiagnostic;

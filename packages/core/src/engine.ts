@@ -13,6 +13,7 @@ import { getLanguageForFile } from "./parser/wasm-loader.js";
 import { ALL_RULES, RULE_METADATA_BY_ID } from "./rules/registry.js";
 import { scanForSecrets } from "./secrets/detector.js";
 import { buildCandidatePaths } from "./taint/propagate.js";
+import { detectPythonSecurityFindings } from "./taint/python-detector.js";
 import { resolveSanitizerStatus } from "./taint/sanitizer-filter.js";
 import { getSinkRuleBinding } from "./taint/sinks.js";
 
@@ -97,6 +98,10 @@ export function createAnalysisEngine(
         }
       }
 
+      if (languageId === "python") {
+        findings.push(...(await detectPythonSecurityFindings(filePath, sourceCode)));
+      }
+
       let astGrepDurationMs = 0;
       let taintDurationMs = 0;
 
@@ -106,14 +111,23 @@ export function createAnalysisEngine(
         languageId === "tsx" ||
         languageId === "javascript";
       if (isJsTs) {
-        for (const ruleYaml of ALL_RULES) {
-          const matchStart = Date.now();
-          const matches = astGrepAdapter.findMatches(sourceCode, ruleYaml);
-          astGrepDurationMs += Date.now() - matchStart;
+        const matchStart = Date.now();
+        const allMatches = astGrepAdapter.findMatchesForAllRules
+          ? astGrepAdapter.findMatchesForAllRules(sourceCode, ALL_RULES)
+          : ALL_RULES.flatMap((ruleYaml) =>
+              astGrepAdapter.findMatches(sourceCode, ruleYaml),
+            );
+        astGrepDurationMs = Date.now() - matchStart;
 
-          if (matches.length === 0) continue;
+        // Group matches by ruleId for candidate path resolution
+        const matchesByRuleId = new Map<string, typeof allMatches>();
+        for (const match of allMatches) {
+          const list = matchesByRuleId.get(match.ruleId) ?? [];
+          list.push(match);
+          matchesByRuleId.set(match.ruleId, list);
+        }
 
-          const ruleId = matches[0]!.ruleId;
+        for (const [ruleId, matches] of matchesByRuleId.entries()) {
           const binding = getSinkRuleBinding(ruleId);
           if (!binding) continue;
 
@@ -124,6 +138,7 @@ export function createAnalysisEngine(
             binding,
             matches,
           });
+          taintDurationMs += Date.now() - taintStart;
 
           for (const path of candidatePaths) {
             const status = await resolveSanitizerStatus(path, llmProvider);
@@ -139,7 +154,7 @@ export function createAnalysisEngine(
               title: binding.title,
               description: binding.description,
               cwe: binding.cwe,
-              ruleYaml: meta?.ruleYaml ?? ruleYaml,
+              ruleYaml: meta?.ruleYaml ?? "",
               code: meta?.code ?? binding.ruleId,
               scope: meta?.scope ?? "security",
               reason: meta?.reason,
@@ -150,7 +165,6 @@ export function createAnalysisEngine(
               createdAt,
             });
           }
-          taintDurationMs += Date.now() - taintStart;
         }
       }
 

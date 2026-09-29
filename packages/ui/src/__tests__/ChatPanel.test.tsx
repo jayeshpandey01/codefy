@@ -124,4 +124,149 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByText("Show critical findings"));
     expect(onSubmit).toHaveBeenCalledWith("Show critical findings");
   });
+
+  it("renders the WhoAmI logo in the top-left header", () => {
+    renderPanel([]);
+    const logoContainer = screen.getByTestId("whoami-chat-logo");
+    expect(logoContainer).toBeTruthy();
+    expect(logoContainer.querySelector("svg")).toBeTruthy();
+  });
+
+  it("renders centered initial layout by default and switches to bottom-docked when turns > 0", () => {
+    // 1. Initial default state: turns is empty -> centered
+    const { unmount } = render(
+      <BridgeProvider client={new MockBridgeClient()}>
+        <ChatPanel
+          turns={[]}
+          onSubmit={vi.fn()}
+          onSelectFinding={vi.fn()}
+          onOpenInGraphView={vi.fn()}
+        />
+      </BridgeProvider>,
+    );
+    expect(screen.getByTestId("chat-centered-initial")).toBeTruthy();
+    expect(screen.queryByTestId("chat-docked-bottom")).toBeNull();
+    unmount();
+
+    // 2. Active turns state: turns > 0 -> docked bottom
+    const finding = buildFinding();
+    const result: ChatResult = {
+      capability: "SUPPORTED",
+      findings: [finding],
+      explanation: "Found finding.",
+    };
+    const turns: ChatTurn[] = [{ id: "t1", query: "what findings exist?", result }];
+
+    render(
+      <BridgeProvider client={new MockBridgeClient()}>
+        <ChatPanel
+          turns={turns}
+          onSubmit={vi.fn()}
+          onSelectFinding={vi.fn()}
+          onOpenInGraphView={vi.fn()}
+        />
+      </BridgeProvider>,
+    );
+
+    expect(screen.getByTestId("chat-docked-bottom")).toBeTruthy();
+    expect(screen.getByTestId("chat-conversation-container")).toBeTruthy();
+    expect(screen.queryByTestId("chat-centered-initial")).toBeNull();
+  });
+
+  it("applies entry animation to the latest question turn", () => {
+    const finding = buildFinding();
+    const result: ChatResult = {
+      capability: "SUPPORTED",
+      findings: [finding],
+      explanation: "Found finding.",
+    };
+    const turns: ChatTurn[] = [
+      { id: "t1", query: "first question", result },
+      { id: "t2", query: "second question", result },
+    ];
+
+    renderPanel(turns);
+
+    const question1 = screen.getByText("first question");
+    const question2 = screen.getByText("second question");
+
+    expect(question1.className).not.toContain("animate-question-entry");
+    expect(question2.className).toContain("animate-question-entry");
+  });
+
+  it("creates section-wise history and allows starting a new conversation", () => {
+    const onNewChat = vi.fn();
+    const onClearHistory = vi.fn();
+    const bridge = new MockBridgeClient();
+
+    const finding = buildFinding();
+    const result: ChatResult = {
+      capability: "SUPPORTED",
+      findings: [finding],
+      explanation: "Found finding.",
+    };
+    const turns: ChatTurn[] = [{ id: "t1", query: "scan for injections", result }];
+
+    render(
+      <BridgeProvider client={bridge}>
+        <ChatPanel
+          turns={turns}
+          onSubmit={vi.fn()}
+          onSelectFinding={vi.fn()}
+          onOpenInGraphView={vi.fn()}
+          onNewChat={onNewChat}
+          onClearHistory={onClearHistory}
+        />
+      </BridgeProvider>,
+    );
+
+    // Open history menu
+    fireEvent.click(screen.getByTitle("Chat History"));
+
+    // Should render section-wise header "TODAY"
+    expect(screen.getByText("Today")).toBeTruthy();
+    expect(screen.getAllByText("scan for injections").length).toBeGreaterThanOrEqual(1);
+
+    // Click New Conversation button in header
+    fireEvent.click(screen.getByTitle("New Conversation"));
+    expect(onNewChat).toHaveBeenCalled();
+  });
+
+  it("selects a past session and loads it when clicked in history", () => {
+    const onSelectSession = vi.fn();
+    const bridge = new MockBridgeClient();
+    const finding = buildFinding();
+    const result: ChatResult = {
+      capability: "SUPPORTED",
+      findings: [finding],
+      explanation: "Found finding.",
+    };
+    const turns: ChatTurn[] = [{ id: "t1", query: "analyze auth.ts", result }];
+
+    render(
+      <BridgeProvider client={bridge}>
+        <ChatPanel
+          turns={turns}
+          onSubmit={vi.fn()}
+          onSelectFinding={vi.fn()}
+          onOpenInGraphView={vi.fn()}
+          onSelectSession={onSelectSession}
+        />
+      </BridgeProvider>,
+    );
+
+    // Open history menu
+    fireEvent.click(screen.getByTitle("Chat History"));
+
+    // Find the session in history and click it
+    const sessionItems = screen.getAllByText("analyze auth.ts");
+    fireEvent.click(sessionItems[0]!);
+
+    expect(onSelectSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "analyze auth.ts",
+        turns: expect.arrayContaining([expect.objectContaining({ query: "analyze auth.ts" })]),
+      }),
+    );
+  });
 });

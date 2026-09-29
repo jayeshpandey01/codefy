@@ -40,8 +40,8 @@ export const GRAPH_OPTIONS: readonly GraphOption[] = [
     title: "Data Flow DAG",
     subtitle: "Interconnected tainted sources, sanitizers, and vulnerability sinks",
     category: "Taint Analysis",
-    icon: <ShieldCheckIcon size={14} className="text-[#75BEFF]" />,
-    badgeColor: "bg-[#04395E] text-[#75BEFF] border-[#007ACC]/40",
+    icon: <ShieldCheckIcon size={14} className="text-severity-medium" />,
+    badgeColor: "bg-vscode-card-selected text-severity-medium border-vscode-focus/40",
     scope: "local",
   },
   {
@@ -59,7 +59,7 @@ export const GRAPH_OPTIONS: readonly GraphOption[] = [
     subtitle: "Branching conditions, safe exits, and bypass exploit vectors",
     category: "Control Flow",
     icon: <DiamondIcon size={14} className="text-[#FFD700]" />,
-    badgeColor: "bg-[#382F00] text-[#FFD700] border-[#CCA700]/40",
+    badgeColor: "bg-severity-high-bg text-[#FFD700] border-severity-high/40",
     scope: "local",
   },
   {
@@ -76,8 +76,8 @@ export const GRAPH_OPTIONS: readonly GraphOption[] = [
     title: "Threat Model & Blast Radius",
     subtitle: "Trust boundary zones & critical asset impact reachability",
     category: "Threat Model",
-    icon: <ShieldAlertIcon size={14} className="text-[#F14C4C]" />,
-    badgeColor: "bg-[#3B1212] text-[#F14C4C] border-[#F14C4C]/40",
+    icon: <ShieldAlertIcon size={14} className="text-severity-critical" />,
+    badgeColor: "bg-severity-critical-bg text-severity-critical border-severity-critical/40",
     scope: "both",
   },
   {
@@ -85,8 +85,8 @@ export const GRAPH_OPTIONS: readonly GraphOption[] = [
     title: "Remote Attack Surface",
     subtitle: "Dynamic endpoint mapping & live orchestrator recon topology",
     category: "Orchestrator",
-    icon: <RemoteScanIcon size={14} className="text-[#89D185]" />,
-    badgeColor: "bg-[#16301A] text-[#89D185] border-[#4EC9B0]/40",
+    icon: <RemoteScanIcon size={14} className="text-severity-low" />,
+    badgeColor: "bg-[#16301A] text-severity-low border-[#4EC9B0]/40",
     scope: "orchestrator",
   },
 ];
@@ -143,7 +143,7 @@ export function GraphSelectorDropdown({
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="flex items-center gap-2 rounded-md border border-[#3C3C3C] bg-[#252526] hover:bg-[#2F2F30] hover:border-[#555555] px-2.5 py-1 text-xs font-semibold text-[#E0E0E0] transition-all shadow-sm cursor-pointer"
+        className="flex items-center gap-2 rounded-md border border-vscode-border bg-vscode-card hover:bg-[#2F2F30] hover:border-vscode-dim px-2.5 py-1 text-xs font-semibold text-vscode-fg transition-all shadow-sm cursor-pointer"
         title="Switch Graph View"
       >
         <span className="shrink-0">{selectedOption.icon}</span>
@@ -151,13 +151,13 @@ export function GraphSelectorDropdown({
           {selectedOption.title}
         </span>
         {findingCount !== undefined && findingCount > 0 && selectedOption.id === "graph" && (
-          <span className="rounded-full bg-[#3B1212] border border-[#F14C4C]/40 px-1.5 py-0.2 text-[10px] font-mono text-[#F14C4C] font-bold">
+          <span className="rounded-full bg-severity-critical-bg border border-severity-critical/40 px-1.5 py-0.2 text-[10px] font-mono text-severity-critical font-bold">
             {findingCount}
           </span>
         )}
         <ChevronDownIcon
           size={12}
-          className={`text-[#858585] transition-transform duration-150 ${
+          className={`text-vscode-muted transition-transform duration-150 ${
             isOpen ? "rotate-180" : ""
           }`}
         />
@@ -165,14 +165,14 @@ export function GraphSelectorDropdown({
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 sm:left-0 top-full mt-1.5 z-50 w-80 rounded-lg border border-[#3C3C3C] bg-[#1E1E1E] p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100 font-sans">
-          <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#858585] border-b border-[#2A2A2B] flex items-center justify-between">
+        <div className="absolute right-0 sm:left-0 top-full mt-1.5 z-50 w-80 rounded-lg border border-vscode-border bg-vscode-bg p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100 font-sans">
+          <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-vscode-muted border-b border-vscode-card-hover flex items-center justify-between">
             <span>
               {scanMode === "orchestrator"
                 ? "Orchestrator Recon Diagrams"
                 : "Local Analysis Diagrams"}
             </span>
-            <span className="font-mono text-[9px] text-[#6E6E6E]">
+            <span className="font-mono text-[9px] text-vscode-dim">
               ({availableOptions.length})
             </span>
           </div>
@@ -191,8 +191,8 @@ export function GraphSelectorDropdown({
                   }}
                   className={`flex items-start gap-2.5 p-2 rounded-md text-left transition-all cursor-pointer ${
                     isSelected
-                      ? "bg-[#094771]/60 border border-[#007ACC]/50 text-white"
-                      : "text-[#CCCCCC] hover:bg-[#2A2D2E] hover:text-white border border-transparent"
+                      ? "bg-vscode-card-selected/60 border border-vscode-focus/50 text-vscode-fg font-semibold"
+                      : "text-vscode-fg hover:bg-vscode-card-hover hover:text-vscode-fg border border-transparent"
                   }`}
                 >
                   <div className="mt-0.5 shrink-0">{option.icon}</div>
@@ -205,12 +205,12 @@ export function GraphSelectorDropdown({
                         {option.category}
                       </span>
                     </div>
-                    <span className="text-[11px] text-[#858585] leading-tight mt-0.5">
+                    <span className="text-[11px] text-vscode-muted leading-tight mt-0.5">
                       {option.subtitle}
                     </span>
                   </div>
                   {isSelected && (
-                    <CheckIcon size={14} className="text-[#75BEFF] shrink-0 mt-1" />
+                    <CheckIcon size={14} className="text-severity-medium shrink-0 mt-1" />
                   )}
                 </button>
               );

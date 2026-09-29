@@ -12,6 +12,7 @@ import {
   type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useTheme } from "../components/ThemeContext.js";
 import type { Finding, GraphNode } from "@whoami/types";
 import { useGraphLayout } from "./useGraphLayout.js";
 import { EndpointNode } from "./nodes/EndpointNode.js";
@@ -22,6 +23,13 @@ import { TaintEdge } from "./edges/TaintEdge.js";
 import { AnimatedPulseEdge } from "./edges/AnimatedPulseEdge.js";
 import { buildRemoteAttackSurfaceGraph } from "./graph-transformers.js";
 import { RemoteScanIcon, ShieldAlertIcon } from "../components/Icons.js";
+import {
+  GRAPH_MIN_ZOOM,
+  GRAPH_MAX_ZOOM,
+  GRAPH_DEFAULT_ZOOM,
+  GRAPH_DEFAULT_FIT_VIEW_OPTIONS,
+} from "./zoom-config.js";
+import { GraphZoomControls } from "./GraphZoomControls.js";
 
 const nodeTypes: NodeTypes = {
   boundary: TrustBoundaryNode,
@@ -52,6 +60,14 @@ export function RemoteAttackSurfaceGraphView({
   direction = "DOWN",
   pipelineMode = "full",
 }: RemoteAttackSurfaceGraphViewProps): ReactElement {
+  // React Flow's own built-in dark/light chrome (canvas background,
+  // minimap, controls, connection lines) is independent of our
+  // data-theme CSS variables -- colorMode must be set explicitly to
+  // whichever kind the active app theme is, or it silently defaults to
+  // its own hardcoded dark palette regardless of the selected theme.
+  const { theme: activeThemeId, themes: allThemes } = useTheme();
+  const reactFlowColorMode = allThemes.find((t) => t.id === activeThemeId)?.kind ?? "dark";
+
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
 
   const { nodes: graphNodes, edges: graphEdges } = useMemo(() => {
@@ -118,9 +134,25 @@ export function RemoteAttackSurfaceGraphView({
     [graphNodes, onNodeClick],
   );
 
+  if (graphNodes.length === 0) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center p-6 text-center text-vscode-muted bg-vscode-bg">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-vscode-card border border-vscode-border mb-3 text-vscode-muted">
+          <RemoteScanIcon size={24} />
+        </div>
+        <div className="text-sm font-semibold text-vscode-fg mb-1.5">
+          No Target DAST Findings
+        </div>
+        <div className="text-xs max-w-sm text-vscode-muted leading-relaxed">
+          No remote attack surface scan has been run yet. Select Target DAST mode in the header and click the scan button to discover live endpoints, service ports, and exploit probe topologies.
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
-      <div role="alert" className="p-4 text-sm text-[#F14C4C]">
+      <div role="alert" className="p-4 text-sm text-severity-critical">
         Failed to lay out remote attack surface topology: {error.message}
       </div>
     );
@@ -128,24 +160,24 @@ export function RemoteAttackSurfaceGraphView({
 
   if (!graph || isLayouting) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-xs text-[#858585]">
+      <div className="flex h-full items-center justify-center p-4 text-xs text-vscode-muted">
         Mapping dynamic endpoints & probe attack topology…
       </div>
     );
   }
 
   return (
-    <div className="relative w-full h-full bg-[#1E1E1E] font-sans overflow-hidden select-none">
+    <div className="relative w-full h-full bg-vscode-bg font-sans overflow-hidden select-none">
       {/* Top Banner */}
-      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-2 bg-[#252526]/90 backdrop-blur-md px-2.5 py-1 rounded border border-[#303031] shadow-md text-xs">
-        <span className="text-[#89D185] font-semibold flex items-center gap-1">
+      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-2 bg-vscode-card px-2.5 py-1 rounded border border-vscode-border shadow-md text-xs">
+        <span className="text-severity-low font-semibold flex items-center gap-1">
           <RemoteScanIcon size={12} />
           Target Host Topology
         </span>
-        <span className="text-[#5A5A5A]">&rarr;</span>
-        <span className="text-[#75BEFF] font-semibold">Discovered Endpoints</span>
-        <span className="text-[#5A5A5A]">&rarr;</span>
-        <span className="text-[#F14C4C] font-semibold flex items-center gap-1">
+        <span className="text-vscode-dim">&rarr;</span>
+        <span className="text-severity-medium font-semibold">Discovered Endpoints</span>
+        <span className="text-vscode-dim">&rarr;</span>
+        <span className="text-severity-critical font-semibold flex items-center gap-1">
           <ShieldAlertIcon size={12} />
           Exploit Probes
         </span>
@@ -161,27 +193,30 @@ export function RemoteAttackSurfaceGraphView({
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        colorMode="dark"
+        onlyRenderVisibleElements={false}
+        colorMode={reactFlowColorMode}
+        minZoom={GRAPH_MIN_ZOOM}
+        maxZoom={GRAPH_MAX_ZOOM}
+        defaultViewport={{ x: 0, y: 0, zoom: GRAPH_DEFAULT_ZOOM }}
         fitView
+        fitViewOptions={GRAPH_DEFAULT_FIT_VIEW_OPTIONS}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#333333" gap={20} />
-        <Controls
-          position="bottom-left"
-          showInteractive={false}
-          className="!border-[#303031] !bg-[#252526] !shadow-md !rounded"
-        />
+        <Background color="var(--color-vscode-border)" gap={20} />
+        <GraphZoomControls position="bottom-left" />
         <MiniMap
           position="top-right"
           nodeStrokeWidth={3}
-          nodeColor={(n: any) => {
+          nodeColor={(n: { type?: string }) => {
             if (n.type === "boundary") return "#2A2D2E";
             if (n.type === "endpoint") return "#75BEFF";
             if (n.type === "probe") return "#F14C4C";
             return "#3C3C3C";
           }}
           maskColor="rgba(30, 30, 30, 0.75)"
-          className="!border-[#303031] !bg-[#252526] !rounded-md !shadow-md !mt-2.5 !mr-2.5"
+          className="!border-vscode-border !bg-vscode-card !rounded-md !shadow-md !mt-2.5 !mr-2.5"
           style={{ width: 140, height: 90 }}
         />
       </ReactFlow>

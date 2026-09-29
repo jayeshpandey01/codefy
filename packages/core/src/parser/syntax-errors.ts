@@ -1,5 +1,5 @@
 import type { Finding } from "@whoami/types";
-import type Parser from "web-tree-sitter";
+import type Parser from "web-tree-sitter-legacy";
 
 import { parseWithCache } from "./parser-cache.js";
 import type { SupportedLanguageId } from "./wasm-loader.js";

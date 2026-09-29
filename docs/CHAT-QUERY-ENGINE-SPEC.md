@@ -6,6 +6,8 @@ This spec exists because `chatbot_plan.md` (repo root) sketched a much larger vi
 
 **Scope decision (confirmed):** this is a new feature on WhoAmI itself — a chat panel in the Right Section — not a separate product. Research here is internal/codebase-grounded only; external tool-landscape research (CodeQL/Semgrep/OSV/etc.) is already covered where relevant in `docs/DETECTION-ENGINE-SPEC.md` §A.0 and isn't re-litigated here.
 
+> **Status note (superseded in parts — see Part C):** Parts A/B below describe the *original* deterministic-only plan. The shipped implementation went further than this doc documents: `packages/core/src/rag/*` + `packages/core/src/llm/hosted-client.ts` add a real hosted LLM ("TrainIQ", at `HostedLlmClient.DEFAULT_AI_GATEWAY_URL`) behind a GraphRAG/OKF retrieval pipeline, and `ChatPanel` is already wired into both app shells' Right Section. B.4's "No LLM is in this loop" and B.13's "❌ Vector embeddings / BM25" are both now factually wrong about the current code — kept below unedited for history, corrected in Part C §C.1. Read Part C first if you're picking this up fresh.
+
 ---
 
 ## B.0 The core design principle, carried over from chatbot_plan.md
@@ -339,3 +341,148 @@ Restating §B.2/§B.10's exclusions as a single list, mirroring chatbot_plan.md 
 - ❌ A `chat-query` `BridgeMessage` — deferred until a query genuinely needs host-side data the webview doesn't already hold
 - ❌ Vector embeddings / BM25 — unnecessary at this data scale and would reintroduce a dependency this project's principles explicitly avoid
 - ❌ Any numeric confidence score — the tri-state `FindingStatus` stays the only "confidence" surface
+
+---
+
+# Part C — LLM Gateway Integration (TrainIQ, shipped) + Hackerbot (proposed)
+
+Written against a hand-drawn architecture diagram (User Query → check backend is up / directly run → context builder [summary + input context + Graph RAG + OKF + help command + previous chat context] → route to {related-to-graph, "/questions", related-to-project, outside-questions→Block Output} → "Trainiq llm model, only if required" → on any failure, notify `cmd.d.plus@gmail.com`) plus `/Users/jayesh/Documents/hackerbot/API_ENDPOINTS.md`, a separate deployed project. This part corrects Parts A/B where the shipped code has moved past them, and plans the gap between the diagram and today's code.
+
+## C.1 Ground truth — what's actually live today
+
+Parts A/B described a plan; this is what actually got built since, verified by reading the code directly (not the older doc):
+
+| Diagram box | Shipped as | Where |
+|---|---|---|
+| "Trainiq llm model" | `HostedLlmClient`, a real deployed AI gateway — **not** a placeholder | `packages/core/src/llm/hosted-client.ts`, `DEFAULT_AI_GATEWAY_URL = "https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com"`. Calls `POST /api/chat` (and `POST /api/rag/index-okf` to index OKF docs server-side). The docstrings call it "TrainIQ" explicitly ("Grounded in OKF knowledge and TrainIQ vectorless retrieval") — this **is** the model the diagram names, already wired, not something to build from scratch. |
+| "Summay & input context + Graph RAG + OKF" | `executeRagRetrieval()` — NLU intent+slot extraction → OKF BM25 index/search → inter-procedural program slice → grounded prompt synthesis → graph-view heuristic → dynamic suggestions, all pure/in-process, `< 1ms` per its own docstring | `packages/core/src/rag/orchestrator.ts` (calls `nlu-analyzer.ts`, `okf-bm25-retriever.ts`, `program-slicer.ts`, `prompt-synthesizer.ts`); OKF documents themselves come from `packages/core/src/okf/generator.ts` (`repository.md`, `architecture.md`, `security-findings.md`, `services.md`) |
+| "Chat UI" | `ChatPanel`, already rendered in the Right Section of **both** shells | `packages/ui/src/components/ChatPanel.tsx` (377 lines); mounted at `apps/desktop-app/src/App.tsx:878` and `apps/vscode-extension/src/webview/main.tsx:949`, both inside the existing `isRightSectionOpen` panel B.4 said was still a placeholder — it isn't anymore |
+| "Directly run" (bypass) | Already exists, but triggered by **failure**, not by an upfront check | `HostedLlmClient.streamRagChat()`'s `catch` block (`hosted-client.ts:277-314`) falls back to `runChatQuery()` (`packages/core/src/query/executor.ts` — the original deterministic-only executor from Part B) whenever the TrainIQ call throws (network error, non-2xx, or the 30s client timeout at line 66) |
+| "Trainiq llm model only if required" | Implemented as **try-then-fallback**, not **decide-then-route**: every query hits TrainIQ first; "only if required" isn't actually enforced anywhere | Same file/lines as above |
+| "outside questions → Block Output" | Partially exists as data-leakage prevention, **not** an actual block | `isGeneral = retrieval.nluAnalysis.intent === "GENERAL_ASSISTANCE"` (`hosted-client.ts:133`) sends the query to TrainIQ with **zero codebase context** instead of refusing to send it at all. A "what's the weather" question still gets answered by the LLM — it's just not handed your source code while doing it. |
+| Some kind of output verification (the diagram's "Block Output" reads most naturally as this) | Computed but **not enforced** — a real gap, not a documentation gap | `verifyLlmResponse()` in `packages/core/src/rag/hallucination-guard.ts` checks the LLM's reply for hallucinated finding IDs, hallucinated file paths, broken code-block syntax, and leaked secrets, returning `{ isValid, violations, sanitizedText }`. But `hosted-client.ts:262-273` only ever reads `guardResult.sanitizedText` (which is just secret-redaction) — `violations` and `isValid` are computed and then **thrown away**. A response that cites a finding ID that doesn't exist ships to the user unflagged today. |
+| "Check Render server is running" | **Does not exist.** No health check runs before calling TrainIQ; the first sign of trouble is the request itself failing | n/a |
+| "Help command" | **Does not exist** in `ChatPanel` | n/a |
+| "previous chat-contex[t]" | UI-only. `ChatPanel` has a history menu (local turn history, `historyMenuRef` etc.) but nothing is sent back to TrainIQ — `AiChatQueryRequest` (`hosted-client.ts:27-34`) has no `session_id`/history field, so every call is a fresh, context-free retrieval | `packages/ui/src/components/ChatPanel.tsx` |
+| "IF anything is failed → email" | **Does not exist anywhere in this codebase.** No SMTP/mail-sending capability exists, and this project's own principles (CLAUDE.md's "No External Runtime Friction") lean against adding one lightly — see §C.8 | n/a |
+| Hackerbot (the second file you attached) | **Not integrated at all.** Zero references to `hackerbot` anywhere in `codefy`. It's a fully separate, already-deployed project (`https://hackerbot-rvom.onrender.com`) with its own Bearer-token auth, its own `/chat` + `/chat/stream`, and a whole pentest-agent surface (`/security/session`, in-chat `/vuln` `/scan` `/axiom` commands, a Pentest Task Tree, an async `/security/pipeline`) that has real conceptual overlap with `axiom-xjkc.onrender.com` (the existing `ScanOrchestratorClient` — see `packages/core/src/orchestrator/client.ts`) but is a **different service with a different API shape** | `/Users/jayesh/Documents/hackerbot/API_ENDPOINTS.md` |
+
+**One correction to the diagram itself, so we build the right thing:** "/ questions" most plausibly maps to Hackerbot's in-chat slash commands (`/vuln`, `/scan`, `/axiom` — see its API doc §8), not to a WhoAmI concept that already exists. Flagging this reading back before building against it, since I could be wrong about what you meant there.
+
+## C.2 What's genuinely new work
+
+Stripping out everything already shipped (C.1), the diagram asks for six things that don't exist yet:
+
+1. **Upfront health-check gating** before deciding which path a query takes (TrainIQ / Hackerbot / local-only), instead of the current "try the network call, fall back on exception" pattern.
+2. **Real query routing into the diagram's four buckets** — right now there's a 15-way `QueryIntent` enum (`packages/types/src/chat-query.ts`) but nothing groups it into "related to the graph" / "slash command" / "related to the project" / "outside — refuse". `GENERAL_ASSISTANCE` is the closest existing thing to bucket 4, and it currently *answers* rather than *blocks*.
+3. **Actually enforcing** `verifyLlmResponse()`'s violations (currently computed and discarded — see C.1) — this is the one gap I'd call an actual bug rather than unbuilt feature, since it's already-written code whose output is silently ignored.
+4. **Session continuity** — folding prior turns into context, and (if Hackerbot is used for anything) its `session_id`.
+5. **A help command.**
+6. **Hackerbot integration** — a new thin HTTP client (mirroring `ScanOrchestratorClient`'s and `HostedLlmClient`'s existing shape) for the `/questions`-slash-command lane, gated by its own `/health` check and Bearer token.
+7. **Failure notification** — see §C.8; this one has a real open design question, not just implementation work.
+
+## C.3 Proposed architecture
+
+```text
+User types in ChatPanel
+        │
+        ▼
+┌─────────────────────────────┐
+│  Backend health check        │  NEW — packages/core/src/llm/gateway-health.ts
+│  GET TrainIQ /health-ish     │  (TrainIQ has no documented /health; Hackerbot
+│  GET Hackerbot /health       │  does — GET /health, §1 of its API doc)
+│  cached ~30s, not per-turn   │  On failure of a given backend: mark it down,
+└──────────────┬───────────────┘  route around it, never block the UI on it.
+               ▼
+┌─────────────────────────────┐
+│  Context builder (shipped)   │  executeRagRetrieval() — unchanged
+│  NLU + OKF BM25 + slice       │  ADD: fold last N turns from ChatPanel's
+│  + prior-turn context (NEW)  │  existing history state into the prompt
+└──────────────┬───────────────┘
+               ▼
+┌─────────────────────────────┐
+│  Query router (NEW)          │  packages/core/src/query/route-classifier.ts
+│  bucket = graph | slash |    │  slash: rawQuery.trim().startsWith("/")
+│  project | outside            │  graph/project: existing QueryIntent, unchanged
+└──────────────┬───────────────┘  outside: GENERAL_ASSISTANCE AND no
+               │                  finding/graph/file entities resolved by NLU
+     ┌─────────┼─────────┬────────────┐
+     ▼         ▼         ▼            ▼
+  graph     slash     project      outside
+     │         │         │            │
+     │         ▼         │            ▼
+     │   Hackerbot     │        Refuse locally —
+     │   session API   │        never call any LLM
+     │   (NEW client)  │        (see §C.8 for whether
+     │         │         │         "refuse" is even
+     └────┬────┴────┬────┘         the right call)
+          ▼         ▼
+   TrainIQ /api/chat, only if the
+   deterministic executor (runChatQuery)
+   couldn't fully answer — "only if
+   required" actually enforced, not
+   just a fallback-on-exception
+          │
+          ▼
+┌─────────────────────────────┐
+│ verifyLlmResponse() (shipped) │  ENFORCE, don't just compute:
+│ violations → if any,          │  - HALLUCINATED_FINDING/FILE → strip the
+│ redact/refuse per §C.8         │    unverifiable claim or refuse the turn
+└──────────────┬───────────────┘  - SECRET_LEAKAGE → already redacted (keep)
+               ▼
+       ChatResult → ChatPanel
+       (unchanged shape, packages/types/src/chat-query.ts)
+```
+
+## C.4 Hackerbot integration, concretely
+
+Modeled directly on the existing `ScanOrchestratorClient` (`packages/core/src/orchestrator/client.ts`) and `HostedLlmClient` (`packages/core/src/llm/hosted-client.ts`) — same shape, same package, no new architectural pattern:
+
+- **New file:** `packages/core/src/hackerbot/client.ts` — `HackerbotClient` class. `baseUrl` defaults to `https://hackerbot-rvom.onrender.com`, Bearer token from `HACKERBOT_API_AUTH_TOKEN` env var (mirrors `OPENROUTER_API_KEY`'s existing "plain env var for now, testing-phase wiring" precedent — see CLAUDE.md's Phase 1 Scope section). Methods: `getHealth()`, `chat()`, `authorizeTarget()`, `runSecuritySessionTurn()` (covers `/vuln`, `/scan`, `/axiom` in-chat commands per its API doc §8), `getPttSnapshot()`, `advancePtt()`, `discussPttNode()`.
+- **New types:** `packages/types/src/hackerbot.ts` — request/response shapes straight from the attached API doc (`SecuritySessionRequest`, `SecuritySessionResponse`, `PttSnapshot`, etc.), same contract-first pattern as `packages/types/src/orchestrator.ts`.
+- **Why a separate client, not folded into `HostedLlmClient`:** different base URL, different auth scheme (Bearer token vs. TrainIQ's `X-API-Key`/Bearer dual), and a materially different response shape (PTT tree, not a flat chat reply) — same reasoning `ILlmTriageProvider` already uses for keeping providers behind one interface but never merging their implementations.
+- **Overlap to resolve, not ignore:** Hackerbot's `/vuln` in-chat command and `/security/pipeline` duplicate what `ScanOrchestratorClient` already does against `axiom-xjkc.onrender.com` (same profile names — `vuln-assessment`, `sast-semgrep`, etc. — §"Supported Axiom Scan Profiles" in the Hackerbot doc lists the *same* 24 profiles as `packages/types/src/orchestrator.ts`'s `ScanProfile`/`SastProfile` unions). Before wiring `/questions` to Hackerbot, worth confirming with you: is Hackerbot meant to *replace* the direct orchestrator calls WhoAmI already makes (RemoteScanPanel → `ScanOrchestratorClient` → `axiom-xjkc.onrender.com`), or run *alongside* them as a conversational front-end to the same underlying scans? Building both without answering this risks two parallel, drifting code paths that hit the same scanner.
+
+## C.5 Phased roadmap
+
+**Phase 0 — Enforce what's already written (no new code, fixes a real gap).** Wire `verifyLlmResponse()`'s `violations`/`isValid` into `streamRagChat()`'s return path instead of discarding them (C.1, C.2 point 3). Smallest, highest-value change here — this is a latent bug fix, not new feature work.
+
+**Phase 1 — Router + outside-question handling.** `packages/core/src/query/route-classifier.ts`: pure function `classifyRoute(nlu: NluAnalysis, rawQuery: string): "graph" | "slash" | "project" | "outside"`. Wire "outside" to §C.8's decided behavior once that's resolved.
+
+**Phase 2 — Session continuity.** Add `sessionTurns` (last N `{query, reply}` pairs) to `StreamRagChatOptions`, folded into `synthesizePrompt`'s input in `prompt-synthesizer.ts`. `ChatPanel` already holds turn history in state — thread it through, don't rebuild it.
+
+**Phase 3 — Health-check gating.** `packages/core/src/llm/gateway-health.ts`: `checkGatewayHealth(client): Promise<"up" | "down">`, cached ~30s (TTL, not per-turn) so a flaky network doesn't add latency to every message. Note: Hackerbot documents a real `/health`; TrainIQ's `HostedLlmClient` has no documented health endpoint today — confirm one exists (or add a cheap probe) before this phase, don't assume.
+
+**Phase 4 — Hackerbot client + `/questions` slash-command routing.** Per §C.4, after the overlap question in C.4 is answered.
+
+**Phase 5 — Help command.** Static, deterministic — a `/help` slash command in `ChatPanel` that lists supported intents/examples, reusing the exact suggestion strings B.9 already specifies.
+
+**Phase 6 — Failure notification.** Deferred until §C.8 is decided.
+
+## C.6 Test plan additions
+
+Mirrors B.12's pattern (exact-match assertions, fixture-driven):
+
+```
+packages/core/src/__tests__/rag/hallucination-guard-enforcement.test.ts
+  streamRagChat, LLM reply cites a nonexistent finding ID -> result flags/strips it (not silently shipped)
+
+packages/core/src/__tests__/query/route-classifier.test.ts
+  "/vuln example.com" -> "slash"
+  "show critical findings" -> "graph" or "project" (per whichever the router assigns)
+  "what's the weather" with no resolved entities -> "outside"
+
+packages/core/src/__tests__/hackerbot/client.test.ts
+  mirrors client.test.ts's mock-fetch pattern for ScanOrchestratorClient
+```
+
+## C.7 What this section is NOT deciding
+
+Consistent with B.13's own discipline — not touching, in this pass: any of B.2's original exclusions (still excluded), and not re-opening the TrainIQ vs. deterministic-executor split (C.1 documents it as shipped, not up for redesign here).
+
+## C.8 Open decisions — yours to make, not mine
+
+1. **Do "outside questions" get refused, or answered with zero context (today's actual behavior)?** The diagram says "Block Output"; the shipped code answers them anyway, just without your codebase in the prompt. These are different UX promises to a user who asks something unrelated.
+2. **Is the email-on-failure literal?** Actually sending mail needs an SMTP relay or a transactional-email API (Resend/SES/etc.), a credential to store, and — per this project's own "No External Runtime Friction" principle and its offline-first design — is a bigger architectural addition than anything else in this plan. A `mailto:` link in an error banner, or just a clear in-app error (which `ActionableErrorBanner` already renders elsewhere in this codebase), gets you most of the practical benefit without adding an email-sending dependency. Worth confirming which you actually want before either gets built.
+3. **Hackerbot: replace or supplement the existing orchestrator scan path?** See C.4's overlap note — this determines whether Phase 4 is small (a chat front-end) or large (a second scanning backend to reconcile with the first).
+4. **Where does Hackerbot's Bearer token live?** Same testing-phase question CLAUDE.md already flags for `OPENROUTER_API_KEY` — a plain env var is fine to start, revisit before real distribution.

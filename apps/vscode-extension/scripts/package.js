@@ -3,7 +3,7 @@
 
 /**
  * Packaging pipeline for a single-platform .vsix:
- *   1. `pnpm deploy --filter @whoami/vscode-extension --prod out/deploy`
+ *   1. `pnpm deploy --filter whoami --prod out/deploy`
  *      (run from the repo root) -- materializes a real, non-symlinked
  *      node_modules tree at <repoRoot>/out/deploy, because @ast-grep/napi's
  *      platform optionalDependencies and vsce's own packaging step don't
@@ -48,13 +48,13 @@ const deployDirRelative = path.join("out", "deploy");
 const deployDir = path.join(repoRoot, deployDirRelative);
 const vsixOutDir = path.join(repoRoot, "dist-vsix");
 
-console.log(`[package] deploying @whoami/vscode-extension -> ${deployDir}`);
+console.log(`[package] deploying whoami -> ${deployDir}`);
 run(
   "pnpm",
   [
     "deploy",
     "--filter",
-    "@whoami/vscode-extension",
+    "whoami",
     "--prod",
     deployDirRelative,
   ],

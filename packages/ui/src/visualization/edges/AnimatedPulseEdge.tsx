@@ -6,9 +6,11 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import type { TaintEdgeData } from "./TaintEdge.js";
+import { useGraphLod } from "../useGraphLod.js";
 
 /**
  * Dedicated particle pulse edge: animates a luminous packet traversing the path from source to sink.
+ * Automatically switches to lightweight static vector rendering at low zoom levels to preserve 60fps.
  */
 export function AnimatedPulseEdge(props: EdgeProps): ReactElement {
   const {
@@ -24,6 +26,7 @@ export function AnimatedPulseEdge(props: EdgeProps): ReactElement {
     markerEnd,
     style,
   } = props;
+  const { isLowLod } = useGraphLod();
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -40,6 +43,23 @@ export function AnimatedPulseEdge(props: EdgeProps): ReactElement {
 
   const color = tainted ? "#F14C4C" : "#89D185";
 
+  // Low LOD: pure static vector edge with zero DOM labels and zero animated particles
+  if (isLowLod) {
+    return (
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke: isHighlighted ? "#FFFFFF" : color,
+          strokeWidth: isHighlighted ? 2.5 : 1.5,
+          opacity: isDimmed ? 0.25 : 0.85,
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <BaseEdge
@@ -54,8 +74,8 @@ export function AnimatedPulseEdge(props: EdgeProps): ReactElement {
         }}
       />
 
-      {/* Pulsing traveling dot along the path */}
-      <circle r={3.5} fill={color} filter="drop-shadow(0 0 4px #F14C4C)">
+      {/* Pulsing traveling dot along the path (GPU accelerated without drop-shadow filter) */}
+      <circle r={3} fill={color}>
         <animateMotion
           path={edgePath}
           dur="1.6s"
@@ -71,7 +91,7 @@ export function AnimatedPulseEdge(props: EdgeProps): ReactElement {
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: "none",
             }}
-            className="rounded border border-[#F14C4C]/40 bg-[#252526]/90 px-1.5 py-0.5 text-[10px] font-mono text-[#F14C4C] shadow-md backdrop-blur-sm"
+            className="rounded border border-severity-critical/40 bg-vscode-card/95 px-1.5 py-0.5 text-[10px] font-mono text-severity-critical shadow-md"
           >
             {label}
           </div>

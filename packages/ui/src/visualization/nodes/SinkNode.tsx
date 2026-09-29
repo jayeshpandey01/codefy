@@ -3,9 +3,11 @@ import { Handle, Position, NodeToolbar, type NodeProps } from "@xyflow/react";
 import type { TaintNodeData } from "./SourceNode.js";
 import { AlertTriangleIcon } from "../../components/Icons.js";
 import { NodeInfoCard } from "./NodeInfoCard.js";
+import { useGraphLod } from "../useGraphLod.js";
 
 export function SinkNode(props: NodeProps): ReactElement {
   const [isHovered, setIsHovered] = useState(false);
+  const { isLowLod } = useGraphLod();
   const data = props.data as TaintNodeData;
   const fileBasename = data.filePath
     ? data.filePath.split(/[/\\]/).pop() || data.filePath
@@ -16,17 +18,47 @@ export function SinkNode(props: NodeProps): ReactElement {
   const severity = (data.severity as string) || "critical";
   const isCritical = severity === "critical";
 
+  if (isLowLod) {
+    return (
+      <div
+        className={[
+          "relative w-[240px] rounded border bg-vscode-card px-2 py-1 select-none",
+          isHighlighted
+            ? "border-severity-critical ring-2 ring-severity-critical"
+            : "border-severity-critical/70",
+          isDimmed ? "opacity-35" : "opacity-100",
+        ].join(" ")}
+      >
+        <div className="truncate text-xs font-mono font-semibold text-severity-critical">
+          {data.label}
+        </div>
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="left"
+          className="!bg-severity-critical !w-1.5 !h-1.5 !border-none"
+        />
+        <Handle
+          type="target"
+          position={Position.Top}
+          id="top"
+          className="!bg-severity-critical !w-1.5 !h-1.5 !border-none"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={[
-        "relative w-[240px] rounded-lg border bg-[#252526] p-2.5 shadow-md transition-colors duration-150 select-none",
+        "relative w-[240px] rounded-lg border bg-vscode-card p-2.5 shadow-md transition-colors duration-150 select-none",
         isHighlighted
-          ? "border-[#F14C4C] ring-2 ring-[#F14C4C] shadow-[0_0_14px_rgba(241,76,76,0.45)]"
+          ? "border-severity-critical ring-2 ring-severity-critical shadow-[0_0_14px_rgba(241,76,76,0.45)]"
           : props.selected
-            ? "border-[#BE1100] ring-2 ring-[#F14C4C] ring-offset-1 ring-offset-[#1E1E1E]"
-            : "border-[#F14C4C]/80 hover:border-[#F14C4C]",
+            ? "border-[#BE1100] ring-2 ring-severity-critical ring-offset-1 ring-offset-vscode-bg"
+            : "border-severity-critical/80 hover:border-severity-critical",
         isDimmed ? "opacity-35" : "opacity-100",
       ].join(" ")}
     >
@@ -49,34 +81,34 @@ export function SinkNode(props: NodeProps): ReactElement {
         type="target"
         position={Position.Left}
         id="left"
-        className="!bg-[#F14C4C] !w-2 !h-2 !border-none"
+        className="!bg-severity-critical !w-2 !h-2 !border-none"
       />
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!bg-[#F14C4C] !w-2 !h-2 !border-none"
+        className="!bg-severity-critical !w-2 !h-2 !border-none"
       />
 
       {/* Sink Role Header & CWE Badge */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1">
-          <AlertTriangleIcon size={12} className="text-[#F14C4C]" />
-          <span className="text-[9px] font-bold uppercase tracking-wider text-[#F14C4C]">
+          <AlertTriangleIcon size={12} className="text-severity-critical" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-severity-critical">
             Vulnerable Sink
           </span>
         </div>
         <div className="flex items-center gap-1">
           {data.cwe && (
-            <span className="rounded bg-[#1E1E1E] border border-[#303031] px-1 py-0.2 text-[8px] font-mono text-[#CCCCCC]">
+            <span className="rounded bg-vscode-bg border border-vscode-border px-1 py-0.2 text-[8px] font-mono text-vscode-fg">
               {data.cwe}
             </span>
           )}
           <span
             className={`rounded px-1 py-0.2 text-[8px] font-bold uppercase ${
               isCritical
-                ? "bg-[#5A1D1D] text-[#F14C4C] border border-[#BE1100]"
-                : "bg-[#382C00] text-[#CCA700] border border-[#CCA700]/50"
+                ? "bg-[#5A1D1D] text-severity-critical border border-[#BE1100]"
+                : "bg-severity-high-bg text-severity-high border border-severity-high/50"
             }`}
           >
             {severity}
@@ -84,11 +116,11 @@ export function SinkNode(props: NodeProps): ReactElement {
         </div>
       </div>
 
-      <div className="truncate text-xs font-mono font-semibold text-[#D4D4D4]" title={data.label}>
+      <div className="truncate text-xs font-mono font-semibold text-vscode-fg" title={data.label}>
         {data.label}
       </div>
 
-      <div className="flex items-center justify-between mt-1 text-[10px] font-mono text-[#858585]">
+      <div className="flex items-center justify-between mt-1 text-[10px] font-mono text-vscode-muted">
         <span className="truncate max-w-[170px]" title={data.filePath}>
           {fileBasename}:{data.line}
         </span>

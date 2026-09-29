@@ -23,8 +23,8 @@ export function HopsClusterNode(props: NodeProps): ReactElement {
         data.onExpand?.();
       }}
       className={[
-        "relative flex items-center justify-between gap-2 w-[250px] rounded-lg border border-dashed border-[#555555] bg-[#222224] px-3 py-2 shadow-sm transition-all duration-150 cursor-pointer hover:border-[#75BEFF] hover:bg-[#2A2A2D] select-none",
-        data.isHighlighted ? "border-[#75BEFF] ring-2 ring-[#75BEFF]/50" : "",
+        "relative flex items-center justify-between gap-2 w-[250px] rounded-lg border border-dashed border-vscode-dim bg-[#222224] px-3 py-2 shadow-sm transition-all duration-150 cursor-pointer hover:border-severity-medium hover:bg-[#2A2A2D] select-none",
+        data.isHighlighted ? "border-severity-medium ring-2 ring-severity-medium/50" : "",
         data.isDimmed ? "opacity-35" : "opacity-100",
       ].join(" ")}
       title="Click to expand intermediate propagation steps"
@@ -34,28 +34,28 @@ export function HopsClusterNode(props: NodeProps): ReactElement {
         type="target"
         position={Position.Left}
         id="left"
-        className="!bg-[#75BEFF] !w-2 !h-2 !border-none"
+        className="!bg-severity-medium !w-2 !h-2 !border-none"
       />
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!bg-[#75BEFF] !w-2 !h-2 !border-none"
+        className="!bg-severity-medium !w-2 !h-2 !border-none"
       />
 
       <div className="flex items-center gap-2 min-w-0">
-        <RefreshCwIcon size={12} className="text-[#75BEFF] shrink-0" />
+        <RefreshCwIcon size={12} className="text-severity-medium shrink-0" />
         <div className="flex flex-col min-w-0">
-          <span className="text-xs font-semibold text-[#D4D4D4] truncate font-mono">
+          <span className="text-xs font-semibold text-vscode-fg truncate font-mono">
             +{data.hopCount} intermediate hops
           </span>
-          <span className="text-[10px] text-[#858585] truncate font-mono">
+          <span className="text-[10px] text-vscode-muted truncate font-mono">
             in {fileBasename}
           </span>
         </div>
       </div>
 
-      <span className="rounded bg-[#04395E] border border-[#007ACC]/40 px-1.5 py-0.5 text-[9px] font-medium text-[#75BEFF] shrink-0 flex items-center gap-0.5">
+      <span className="rounded bg-vscode-card-selected border border-vscode-focus/40 px-1.5 py-0.5 text-[9px] font-medium text-severity-medium shrink-0 flex items-center gap-0.5">
         Expand <ChevronDownIcon size={10} className="-rotate-90" />
       </span>
 
@@ -64,13 +64,13 @@ export function HopsClusterNode(props: NodeProps): ReactElement {
         type="source"
         position={Position.Right}
         id="right"
-        className="!bg-[#75BEFF] !w-2 !h-2 !border-none"
+        className="!bg-severity-medium !w-2 !h-2 !border-none"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!bg-[#75BEFF] !w-2 !h-2 !border-none"
+        className="!bg-severity-medium !w-2 !h-2 !border-none"
       />
     </div>
   );

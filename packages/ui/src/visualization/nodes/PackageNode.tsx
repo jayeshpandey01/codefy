@@ -20,11 +20,11 @@ export const PackageNode = memo(function PackageNode({
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`relative w-[240px] max-w-[240px] rounded-lg border bg-[#1E1E1E] p-2.5 font-sans shadow-md transition-colors duration-150 ${
+      className={`relative w-[240px] max-w-[240px] rounded-lg border bg-vscode-bg p-2.5 font-sans shadow-md transition-colors duration-150 ${
         isVulnerable
-          ? "border-[#F14C4C] shadow-[0_0_12px_rgba(241,76,76,0.2)]"
-          : "border-[#303031] hover:border-[#4EC9B0]/60"
-      } ${selected ? "ring-2 ring-[#75BEFF]" : ""} ${
+          ? "border-severity-critical shadow-[0_0_12px_rgba(241,76,76,0.2)]"
+          : "border-vscode-border hover:border-[#4EC9B0]/60"
+      } ${selected ? "ring-2 ring-severity-medium" : ""} ${
         data.isDimmed ? "opacity-30" : "opacity-100"
       } ${data.isHighlighted ? "ring-2 ring-[#4EC9B0]" : ""}`}
     >
@@ -42,15 +42,15 @@ export const PackageNode = memo(function PackageNode({
         />
       </NodeToolbar>
       {/* Top Header */}
-      <div className="flex items-center justify-between gap-1 pb-1 border-b border-[#303031]">
+      <div className="flex items-center justify-between gap-1 pb-1 border-b border-vscode-border">
         <div className="flex items-center gap-1.5 min-w-0">
-          <FileCodeIcon size={13} className={isVulnerable ? "text-[#F14C4C]" : "text-[#4EC9B0]"} />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#CCCCCC]">
+          <FileCodeIcon size={13} className={isVulnerable ? "text-severity-critical" : "text-[#4EC9B0]"} />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-vscode-fg">
             {category}
           </span>
         </div>
         {isVulnerable ? (
-          <span className="rounded bg-[#3B1212] border border-[#F14C4C]/60 px-1.5 py-0.2 text-[9px] font-mono font-bold text-[#F14C4C]">
+          <span className="rounded bg-severity-critical-bg border border-severity-critical/60 px-1.5 py-0.2 text-[9px] font-mono font-bold text-severity-critical">
             {vulnTotal} Flaw{vulnTotal !== 1 ? "s" : ""}
           </span>
         ) : (
@@ -61,13 +61,13 @@ export const PackageNode = memo(function PackageNode({
       </div>
 
       {/* Package Name */}
-      <div className="mt-1 text-xs font-semibold text-[#E0E0E0] truncate" title={label}>
+      <div className="mt-1 text-xs font-semibold text-vscode-fg truncate" title={label}>
         {label}
       </div>
 
       {/* Version / Description */}
       {description && (
-        <div className="text-[10px] font-mono text-[#858585] truncate mt-0.5">
+        <div className="text-[10px] font-mono text-vscode-muted truncate mt-0.5">
           {description}
         </div>
       )}
@@ -77,25 +77,25 @@ export const PackageNode = memo(function PackageNode({
         type="target"
         position={Position.Top}
         id="top"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#4EC9B0]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-[#4EC9B0]"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#4EC9B0]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-[#4EC9B0]"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#4EC9B0]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-[#4EC9B0]"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#4EC9B0]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-[#4EC9B0]"
       />
     </div>
   );

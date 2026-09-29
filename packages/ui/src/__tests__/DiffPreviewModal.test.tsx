@@ -141,4 +141,39 @@ describe("DiffPreviewModal", () => {
 
     expect(screen.getByText("Original Code (Previous)")).toBeTruthy();
   });
+
+  it("calls onClose when clicking outside on the backdrop", () => {
+    const handleClose = vi.fn();
+    const handleApply = vi.fn();
+
+    render(
+      <DiffPreviewModal
+        finding={buildTestFinding()}
+        isOpen={true}
+        onClose={handleClose}
+        onApplyFix={handleApply}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog);
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when pressing the Escape key", () => {
+    const handleClose = vi.fn();
+    const handleApply = vi.fn();
+
+    render(
+      <DiffPreviewModal
+        finding={buildTestFinding()}
+        isOpen={true}
+        onClose={handleClose}
+        onApplyFix={handleApply}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
 });

@@ -6,6 +6,7 @@ import cytoscape, {
 } from "cytoscape";
 import type { GraphNode } from "@whoami/types";
 import { traceToGraph, type GraphContainerProps } from "./GraphContainer.js";
+import { GRAPH_MIN_ZOOM, GRAPH_MAX_ZOOM, GRAPH_DEFAULT_ZOOM } from "./zoom-config.js";
 
 /**
  * Second rendering engine for the same TaintTrace -> GraphNode[]/GraphEdge[]
@@ -134,6 +135,9 @@ export function CytoscapeGraphView({
       },
       userZoomingEnabled: true,
       userPanningEnabled: true,
+      zoom: GRAPH_DEFAULT_ZOOM,
+      minZoom: GRAPH_MIN_ZOOM,
+      maxZoom: GRAPH_MAX_ZOOM,
       boxSelectionEnabled: false,
       autoungrabify: true,
     });

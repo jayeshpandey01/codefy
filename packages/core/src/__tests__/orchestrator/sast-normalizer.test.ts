@@ -230,4 +230,98 @@ describe("normalizeRemoteFindings for SAST engines", () => {
     expect(f.trace.steps.length).toBe(2);
     expect(f.trace.steps[1]?.label).toContain("Github");
   });
+
+  it("normalizes Gitleaks high-entropy secret detections with secret-exposure sink class", () => {
+    const gitleaksResult: ScanResultRead = {
+      id: "gitleaks-res-1",
+      scan_job_id: "scan-gitleaks-001",
+      created_at: "2026-09-04T10:00:00Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        risk_summary: { critical: 0, high: 1, total: 1 },
+        findings: [
+          {
+            id: "GL-001",
+            code: "GITLEAKS_AWS_ACCESS_TOKEN",
+            severity: "HIGH",
+            title: "AWS Access Key ID Detected",
+            description: "Identified AWS Access Key ID with high Shannon entropy in .env.backup",
+            evidence: {
+              location: ".env.backup:4",
+              file: ".env.backup",
+              line: 4,
+              detector: "AWS",
+              snippet: "AKIAIOSFODNN7EXAMPLE",
+            },
+            remediation: "Revoke the AWS access key in AWS IAM Console immediately.",
+          },
+        ],
+      },
+    };
+
+    const findings = normalizeRemoteFindings(gitleaksResult, "project-repo");
+    expect(findings.length).toBe(1);
+    const f = findings[0]!;
+    expect(f.scope).toBe("secrets");
+    expect(f.trace.sinkClass).toBe("secret-exposure");
+    expect(f.cwe).toBe("CWE-798");
+    expect(f.trace.steps.length).toBe(2);
+    expect(f.trace.steps[0]?.role).toBe("source");
+    expect(f.trace.steps[1]?.role).toBe("sink");
+    expect(f.trace.steps[1]?.label).toContain("AWS");
+  });
+
+  it("normalizes GitHub CodeQL semantic AST query findings with dataflow", () => {
+    const codeqlResult: ScanResultRead = {
+      id: "codeql-res-1",
+      scan_job_id: "scan-codeql-001",
+      created_at: "2026-09-04T10:00:00Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        risk_summary: { critical: 1, total: 1 },
+        findings: [
+          {
+            id: "CQL-001",
+            code: "CODEQL_JS_XSS_QUERY",
+            severity: "CRITICAL",
+            title: "DOM-based Cross-Site Scripting (XSS)",
+            description: "Untrusted location.hash parameter written to element.innerHTML.",
+            evidence: {
+              location: "src/client/view.ts:45",
+              file: "src/client/view.ts",
+              line: 45,
+              cwe: ["CWE-79: Improper Neutralization of Input During Web Page Generation"],
+              flow: [
+                {
+                  step: 1,
+                  location: "src/client/view.ts:30",
+                  variable: "window.location.hash",
+                  type: "Source (Location Parameter)",
+                },
+                {
+                  step: 2,
+                  location: "src/client/view.ts:45",
+                  variable: "container.innerHTML",
+                  type: "Sink (HTML Injection)",
+                },
+              ],
+            },
+            remediation: "Use textContent or DOMPurify before inserting into innerHTML.",
+          },
+        ],
+      },
+    };
+
+    const findings = normalizeRemoteFindings(codeqlResult, "client-app");
+    expect(findings.length).toBe(1);
+    const f = findings[0]!;
+    expect(f.scope).toBe("code");
+    expect(f.cwe).toBe("CWE-79");
+    expect(f.trace.sinkClass).toBe("code-injection");
+    expect(f.trace.steps.length).toBe(2);
+    expect(f.trace.steps[0]?.role).toBe("source");
+    expect(f.trace.steps[1]?.role).toBe("sink");
+  });
 });

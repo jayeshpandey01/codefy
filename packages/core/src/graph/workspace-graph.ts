@@ -99,6 +99,7 @@ const BUILTIN_CALL_KEYWORDS = new Set([
 
 /**
  * Universal multi-language extractor for functions, classes, and calls.
+ * Optimized with fast-path skips and O(1) call tracking.
  */
 function extractSymbolsFromCode(
   filePath: string,
@@ -109,37 +110,58 @@ function extractSymbolsFromCode(
   const normalizedFile = filePath.replace(/\\/g, "/");
 
   for (let i = 0; i < lines.length; i++) {
-    const lineContent = lines[i]?.trim() ?? "";
+    const rawLine = lines[i];
+    if (!rawLine) continue;
+    const lineContent = rawLine.trim();
     if (
-      !lineContent ||
+      lineContent.length === 0 ||
       lineContent.startsWith("//") ||
       lineContent.startsWith("#") ||
-      lineContent.startsWith("/*")
+      lineContent.startsWith("/*") ||
+      lineContent.startsWith("*")
     ) {
       continue;
     }
 
     const lineNumber = i + 1;
 
-    // 1. Check Class / Struct / Interface / Contract
-    const classMatch = CLASS_REGEX.exec(lineContent);
-    if (
-      classMatch &&
-      classMatch[1] &&
-      !BUILTIN_CALL_KEYWORDS.has(classMatch[1])
-    ) {
-      const className = classMatch[1];
-      const classId = `class:${normalizedFile}:${className}:${lineNumber}`;
-      symbols.push({
-        id: classId,
-        name: className,
-        type: "class",
-        line: lineNumber,
-        startLine: lineNumber,
-        endLine: Math.min(lines.length, lineNumber + 50),
-        calls: [],
-      });
+    // Fast-path: Skip regex evaluation if the line cannot possibly declare a class or function
+    const hasClassKeyword =
+      lineContent.includes("class") ||
+      lineContent.includes("interface") ||
+      lineContent.includes("struct") ||
+      lineContent.includes("trait") ||
+      lineContent.includes("contract") ||
+      lineContent.includes("type");
+
+    const hasFuncIndicator =
+      lineContent.includes("(") || lineContent.includes("=>");
+
+    if (!hasClassKeyword && !hasFuncIndicator) {
       continue;
+    }
+
+    // 1. Check Class / Struct / Interface / Contract
+    if (hasClassKeyword) {
+      const classMatch = CLASS_REGEX.exec(lineContent);
+      if (
+        classMatch &&
+        classMatch[1] &&
+        !BUILTIN_CALL_KEYWORDS.has(classMatch[1])
+      ) {
+        const className = classMatch[1];
+        const classId = `class:${normalizedFile}:${className}:${lineNumber}`;
+        symbols.push({
+          id: classId,
+          name: className,
+          type: "class",
+          line: lineNumber,
+          startLine: lineNumber,
+          endLine: Math.min(lines.length, lineNumber + 50),
+          calls: [],
+        });
+        continue;
+      }
     }
 
     // 2. Check Function Declarations
@@ -173,10 +195,13 @@ function extractSymbolsFromCode(
 
     if (funcName && !BUILTIN_CALL_KEYWORDS.has(funcName)) {
       // Find approximate function body lines to extract calls
-      const calls: string[] = [];
+      const callsSet = new Set<string>();
       const bodyEnd = Math.min(lines.length, i + 35);
       for (let j = i; j < bodyEnd; j++) {
         const bodyLine = lines[j] ?? "";
+        // Fast-path: if there's no open parenthesis on this line, no function call can exist
+        if (!bodyLine.includes("(")) continue;
+
         let callMatch: RegExpExecArray | null;
         CALL_REGEX.lastIndex = 0;
         while ((callMatch = CALL_REGEX.exec(bodyLine)) !== null) {
@@ -184,10 +209,9 @@ function extractSymbolsFromCode(
           if (
             callee &&
             callee !== funcName &&
-            !BUILTIN_CALL_KEYWORDS.has(callee) &&
-            !calls.includes(callee)
+            !BUILTIN_CALL_KEYWORDS.has(callee)
           ) {
-            calls.push(callee);
+            callsSet.add(callee);
           }
         }
       }
@@ -199,7 +223,7 @@ function extractSymbolsFromCode(
         line: lineNumber,
         startLine: lineNumber,
         endLine: bodyEnd,
-        calls,
+        calls: Array.from(callsSet),
       });
     }
   }
@@ -219,6 +243,23 @@ export function buildWorkspaceGraph(
   const nodes: WorkspaceGraphNode[] = [];
   const edges: WorkspaceGraphEdge[] = [];
   const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
+
+  const addEdge = (edge: WorkspaceGraphEdge) => {
+    if (!edgeIds.has(edge.id)) {
+      edgeIds.add(edge.id);
+      edges.push(edge);
+    }
+  };
+
+  // Pre-index files by basenameWithoutExt for O(1) import resolution
+  const filesByBasename = new Map<string, string[]>();
+  for (const f of files) {
+    const base = getBasename(f).replace(/\.[^/.]+$/, "");
+    const list = filesByBasename.get(base) ?? [];
+    list.push(f);
+    filesByBasename.set(base, list);
+  }
 
   // Map findings to file lines
   const fileFindings = new Map<string, FileFindingSummary>();
@@ -257,6 +298,7 @@ export function buildWorkspaceGraph(
   const directories = new Set<string>();
   const allSymbolsByFile = new Map<string, ExtractedSymbol[]>();
   const globalFunctionMap = new Map<string, string>(); // funcName -> funcNodeId
+  const fileSymbolsMap = new Map<string, Map<string, string>>(); // absFile -> (funcName -> funcNodeId)
 
   // Phase 1: Extract Directory and File Nodes
   for (const absFile of files) {
@@ -284,7 +326,7 @@ export function buildWorkspaceGraph(
           });
 
           if (parentPath) {
-            edges.push({
+            addEdge({
               id: `edge:dir:${parentPath}->${dirId}`,
               source: `dir:${parentPath}`,
               target: dirId,
@@ -323,7 +365,7 @@ export function buildWorkspaceGraph(
       });
 
       if (dirName && dirName !== ".") {
-        edges.push({
+        addEdge({
           id: `edge:dir:${dirName}->${fileId}`,
           source: `dir:${dirName}`,
           target: fileId,
@@ -338,8 +380,12 @@ export function buildWorkspaceGraph(
       const symbols = extractSymbolsFromCode(absFile, code);
       allSymbolsByFile.set(absFile, symbols);
 
+      const localMap = new Map<string, string>();
+      fileSymbolsMap.set(absFile, localMap);
+
       for (const sym of symbols) {
         globalFunctionMap.set(sym.name, sym.id);
+        localMap.set(sym.name, sym.id);
 
         // Check if any finding falls inside this function's line range
         let symFindingCount = 0;
@@ -369,7 +415,7 @@ export function buildWorkspaceGraph(
           });
 
           // Edge: File -> defines -> Symbol
-          edges.push({
+          addEdge({
             id: `edge:defines:${fileId}->${sym.id}`,
             source: fileId,
             target: sym.id,
@@ -379,7 +425,7 @@ export function buildWorkspaceGraph(
         }
       }
 
-      // Phase 3: Module Imports
+      // Phase 3: Module Imports (O(1) lookup via filesByBasename)
       let match: RegExpExecArray | null;
       IMPORT_REGEX.lastIndex = 0;
       while ((match = IMPORT_REGEX.exec(code)) !== null) {
@@ -392,23 +438,18 @@ export function buildWorkspaceGraph(
             /\.[^/.]+$/,
             "",
           );
-          const targetFile = files.find((f) => {
-            const base = getBasename(f).replace(/\.[^/.]+$/, "");
-            return base === targetBasename;
-          });
+          const candidates = filesByBasename.get(targetBasename);
+          const targetFile = candidates?.find((f) => f !== absFile) ?? candidates?.[0];
 
           if (targetFile && targetFile !== absFile) {
             const targetId = `file:${targetFile.replace(/\\/g, "/")}`;
-            const edgeId = `edge:import:${fileId}->${targetId}`;
-            if (!edges.some((e) => e.id === edgeId)) {
-              edges.push({
-                id: edgeId,
-                source: fileId,
-                target: targetId,
-                type: "imports",
-                label: "imports",
-              });
-            }
+            addEdge({
+              id: `edge:import:${fileId}->${targetId}`,
+              source: fileId,
+              target: targetId,
+              type: "imports",
+              label: "imports",
+            });
           }
         }
       }
@@ -416,21 +457,20 @@ export function buildWorkspaceGraph(
   }
 
   // Phase 4: Function Call Connections (Function A -> calls -> Function B)
-  for (const [, symbols] of allSymbolsByFile.entries()) {
+  for (const [absFile, symbols] of allSymbolsByFile.entries()) {
+    const localFuncs = fileSymbolsMap.get(absFile);
     for (const sym of symbols) {
       for (const calleeName of sym.calls) {
-        const targetNodeId = globalFunctionMap.get(calleeName);
+        // First check local file scope, fallback to global map
+        const targetNodeId = localFuncs?.get(calleeName) ?? globalFunctionMap.get(calleeName);
         if (targetNodeId && targetNodeId !== sym.id) {
-          const callEdgeId = `edge:call:${sym.id}->${targetNodeId}`;
-          if (!edges.some((e) => e.id === callEdgeId)) {
-            edges.push({
-              id: callEdgeId,
-              source: sym.id,
-              target: targetNodeId,
-              type: "calls",
-              label: "calls",
-            });
-          }
+          addEdge({
+            id: `edge:call:${sym.id}->${targetNodeId}`,
+            source: sym.id,
+            target: targetNodeId,
+            type: "calls",
+            label: "calls",
+          });
         }
       }
     }

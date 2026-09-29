@@ -2,16 +2,54 @@ import * as vscode from "vscode";
 import { EngineHost } from "./engine/engineHost.js";
 import { registerOpenPanelCommand } from "./commands/openPanel.js";
 import { registerScanWorkspaceCommand } from "./commands/scanWorkspace.js";
+import { computeUpdateNotice } from "./bridge/updateNotice.js";
+import { WhoAmIPanel } from "./panel/WhoAmIPanel.js";
 
 export function activate(context: vscode.ExtensionContext): void {
+  const scanOutput = vscode.window.createOutputChannel("WhoAmI Scanner");
   // One @whoami/core/node engine instance for the extension host's whole
   // lifetime -- see CLAUDE.md Part 5 and src/engine/engineHost.ts.
-  const engineHost = new EngineHost();
+  const engineHost = new EngineHost(scanOutput);
 
   context.subscriptions.push(
+    scanOutput,
     registerScanWorkspaceCommand(context, engineHost),
     registerOpenPanelCommand(context, engineHost),
   );
+
+  // Status bar entry so the extension is visibly present once activated.
+  const statusBar = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    0,
+  );
+  statusBar.text = "$(shield) WhoAmI";
+  statusBar.tooltip = "WhoAmI: Open Findings Panel";
+  statusBar.command = "whoami.openPanel";
+  statusBar.show();
+  context.subscriptions.push(statusBar);
+
+  // VS Code installs extension updates on its own (no download/install step
+  // for us to drive, unlike the desktop app) -- this only notices a version
+  // bump since the last activation and announces it. See
+  // docs/RELEASE-PIPELINE.md, Step 6. WhoAmIPanel.setPendingUpdateNotice
+  // hands the same notice to whichever panel opens next (immediately, if
+  // one is already open from a previous window reload, or later when the
+  // user first opens it this session) -- see WhoAmIPanel.ts.
+  try {
+    const updateNotice = computeUpdateNotice(context);
+    if (updateNotice && updateNotice.kind === "updated") {
+      WhoAmIPanel.setPendingUpdateNotice(updateNotice);
+      void vscode.window
+        .showInformationMessage(`WhoAmI updated to ${updateNotice.to}`, "What's new")
+        .then((pick) => {
+          if (pick === "What's new") {
+            WhoAmIPanel.createOrShow(context, engineHost);
+          }
+        });
+    }
+  } catch (err) {
+    console.warn("[WhoAmI] Update notice check failed (non-fatal):", err);
+  }
 }
 
 export function deactivate(): void {

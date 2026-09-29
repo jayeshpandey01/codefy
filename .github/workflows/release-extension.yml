@@ -1,0 +1,84 @@
+name: release-extension
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: win32-x64, os: windows-latest }
+          - { target: win32-arm64, os: windows-latest, cpu: arm64 }
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: darwin-x64, os: macos-13 }
+          - { target: linux-x64, os: ubuntu-latest }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+          - { target: alpine-x64, os: ubuntu-latest, libc: musl }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies (target platform binaries)
+        run: >
+          pnpm install --frozen-lockfile
+          ${{ matrix.cpu && format('--config.supportedArchitectures.cpu={0}', matrix.cpu) || '' }}
+          ${{ matrix.libc && format('--config.supportedArchitectures.libc={0}', matrix.libc) || '' }}
+
+      - run: pnpm version:sync
+
+      - run: pnpm turbo build --filter=whoami...
+
+      - run: pnpm --filter whoami run package ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: dist-vsix/*.vsix
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment: release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          path: vsix
+          merge-multiple: true
+
+      - run: npx -y @vscode/vsce publish --packagePath vsix/*.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - run: npx -y ovsx publish --packagePath vsix/*.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - run: gh release upload "${{ inputs.tag }}" vsix/*.vsix --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

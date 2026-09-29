@@ -14,12 +14,33 @@ function nextId(prefix: string): string {
   return `${prefix}-${findingCounter}`;
 }
 
-function lineNumberAt(sourceCode: string, index: number): number {
-  let line = 1;
-  for (let i = 0; i < index; i += 1) {
-    if (sourceCode[i] === "\n") line += 1;
+/**
+ * Offsets of every newline in the source, built once per scan so individual
+ * match positions resolve to a line number via binary search (O(log n))
+ * instead of re-walking from the start of the file on every match (O(n)
+ * per call -- quadratic overall on files with many matches, and measurably
+ * multi-second on real multi-MB vendored JSON).
+ */
+function buildLineStartOffsets(sourceCode: string): number[] {
+  const offsets = [0];
+  for (let i = 0; i < sourceCode.length; i += 1) {
+    if (sourceCode[i] === "\n") offsets.push(i + 1);
   }
-  return line;
+  return offsets;
+}
+
+function lineNumberAt(lineStartOffsets: number[], index: number): number {
+  let low = 0;
+  let high = lineStartOffsets.length - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >>> 1;
+    if ((lineStartOffsets[mid] as number) <= index) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return low + 1;
 }
 
 function withGlobalFlag(regex: RegExp): RegExp {
@@ -68,6 +89,7 @@ export function scanForSecrets(
 
   const findings: SecretFinding[] = [];
   const seenRanges = new Set<string>();
+  const lineStartOffsets = buildLineStartOffsets(sourceCode);
 
   for (const { kind, regex } of SECRET_REGEX_PATTERNS) {
     const re = withGlobalFlag(regex);
@@ -82,7 +104,7 @@ export function scanForSecrets(
         id: nextId(kind),
         kind,
         filePath,
-        line: lineNumberAt(sourceCode, match.index),
+        line: lineNumberAt(lineStartOffsets, match.index),
         matchedPattern: matchedText,
       });
     }
@@ -124,7 +146,7 @@ export function scanForSecrets(
       id: nextId("high-entropy-string"),
       kind: "high-entropy-string",
       filePath,
-      line: lineNumberAt(sourceCode, tokenMatch.index),
+      line: lineNumberAt(lineStartOffsets, tokenMatch.index),
       entropy,
     });
   }

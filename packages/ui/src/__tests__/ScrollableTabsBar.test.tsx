@@ -24,7 +24,7 @@ describe("ScrollableTabsBar", () => {
     expect(screen.getByText("Control Flow")).toBeTruthy();
 
     const activeEl = screen.getByText("Data Flow DAG").closest("div");
-    expect(activeEl?.className).toContain("border-[#007ACC]");
+    expect(activeEl?.className).toContain("border-vscode-focus");
   });
 
   it("triggers onSelectTab when a tab is clicked", () => {

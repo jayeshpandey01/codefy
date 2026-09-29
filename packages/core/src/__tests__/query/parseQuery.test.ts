@@ -66,4 +66,16 @@ describe("parseQuery", () => {
   it("returns undefined for empty input", () => {
     expect(parseQuery("   ")).toBeUndefined();
   });
+
+  it('maps "explain me python developer" to GENERAL_ASSISTANCE', () => {
+    const ast = parseQuery("explain me python developer");
+    expect(ast?.intent).toBe("GENERAL_ASSISTANCE");
+    expect(ast?.findingId).toBeUndefined();
+  });
+
+  it('maps "can you redirect to the agent.py file" to CODE_NAVIGATION with targetFilePath', () => {
+    const ast = parseQuery("can you redirect to the agent.py file");
+    expect(ast?.intent).toBe("CODE_NAVIGATION");
+    expect(ast?.targetFilePath).toBe("agent.py");
+  });
 });

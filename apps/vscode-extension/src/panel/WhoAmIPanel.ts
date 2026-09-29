@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { UpdateNotice } from "@whoami/types";
 import type { EngineHost } from "../engine/engineHost.js";
 import { ExtensionBridge } from "../bridge/extensionBridge.js";
 import { getWebviewHtml } from "./getWebviewHtml.js";
@@ -14,23 +15,44 @@ export class WhoAmIPanel {
 
   private static current: WhoAmIPanel | undefined;
 
+  /**
+   * Set once by extension.ts's activate() when it detects a version bump,
+   * consumed by the next (or already-open) panel's ExtensionBridge -- see
+   * setPendingUpdateNotice below and docs/RELEASE-PIPELINE.md Step 6.
+   */
+  private static pendingUpdateNotice: UpdateNotice | null = null;
+
   private readonly panel: vscode.WebviewPanel;
   private readonly bridge: ExtensionBridge;
   private readonly disposables: vscode.Disposable[] = [];
 
   private constructor(
     panel: vscode.WebviewPanel,
-    extensionUri: vscode.Uri,
+    context: vscode.ExtensionContext,
     engineHost: EngineHost,
   ) {
     this.panel = panel;
-    this.panel.webview.html = getWebviewHtml(this.panel.webview, extensionUri);
-    this.bridge = new ExtensionBridge(this.panel, engineHost);
+    this.panel.webview.html = getWebviewHtml(this.panel.webview, context.extensionUri);
+    this.bridge = new ExtensionBridge(
+      this.panel,
+      engineHost,
+      context,
+      WhoAmIPanel.pendingUpdateNotice,
+    );
+    // Consumed once -- a panel closed and reopened later in the same
+    // session shouldn't re-announce the same update.
+    WhoAmIPanel.pendingUpdateNotice = null;
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
+  /** Called from extension.ts's activate() right after computeUpdateNotice()
+   * returns a notice -- see the comment there. */
+  static setPendingUpdateNotice(notice: UpdateNotice): void {
+    WhoAmIPanel.pendingUpdateNotice = notice;
+  }
+
   static createOrShow(
-    extensionUri: vscode.Uri,
+    context: vscode.ExtensionContext,
     engineHost: EngineHost,
   ): WhoAmIPanel {
     const column = vscode.window.activeTextEditor?.viewColumn;
@@ -48,12 +70,12 @@ export class WhoAmIPanel {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, "dist", "webview"),
+          vscode.Uri.joinPath(context.extensionUri, "dist", "webview"),
         ],
       },
     );
 
-    WhoAmIPanel.current = new WhoAmIPanel(panel, extensionUri, engineHost);
+    WhoAmIPanel.current = new WhoAmIPanel(panel, context, engineHost);
     return WhoAmIPanel.current;
   }
 

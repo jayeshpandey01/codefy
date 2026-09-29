@@ -1,4 +1,4 @@
-import Parser from "web-tree-sitter";
+import Parser from "web-tree-sitter-legacy";
 import { VercelError } from "@whoami/types";
 
 import type { SupportedLanguageId } from "./grammar-loader.types.js";
@@ -42,7 +42,12 @@ let initPromise: Promise<void> | undefined;
 /** Idempotent — safe to call from multiple call sites. */
 export async function ensureTreeSitterInitialized(): Promise<void> {
   if (!initPromise) {
-    initPromise = Parser.init();
+    initPromise = Parser.init({
+      locateFile: (fileName: string) => {
+        if (!grammarBaseUrl) return fileName;
+        return `${grammarBaseUrl}/${fileName}`;
+      },
+    });
   }
   await initPromise;
 }

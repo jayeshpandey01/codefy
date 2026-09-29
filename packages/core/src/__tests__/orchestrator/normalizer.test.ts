@@ -79,4 +79,110 @@ describe("normalizeRemoteFindings", () => {
       "Nginx:1.24.0, OpenSSL:3.0.2, React",
     );
   });
+
+  it("normalizes diverse DAST scanner findings (XSS, CORS, CRLF, SSTI) with appropriate CWEs", () => {
+    const mockResult: ScanResultRead = {
+      id: "result-dast-various",
+      scan_job_id: "scan-dast-100",
+      created_at: "2026-09-01T00:00:00Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        findings: [
+          {
+            title: "Reflected Cross-Site Scripting (XSS)",
+            severity: "high",
+            host: "https://example.com/search?q=test",
+            description: "Reflected payload executed in DOM context",
+          },
+          {
+            title: "CORS Misconfiguration — Arbitrary Origin Allowed",
+            severity: "medium",
+            host: "https://example.com/api/user",
+            description: "Access-Control-Allow-Origin: * with credentials",
+          },
+          {
+            title: "CRLF Injection / HTTP Response Splitting",
+            severity: "medium",
+            host: "https://example.com/redirect",
+            description: "Injected newline headers",
+          },
+          {
+            title: "Server-Side Template Injection (SSTI)",
+            severity: "critical",
+            host: "https://example.com/render",
+            description: "Jinja2 template evaluation {{ 7*7 }}",
+          },
+        ],
+      },
+    };
+
+    const findings = normalizeRemoteFindings(mockResult, "example.com");
+    expect(findings.length).toBe(4);
+
+    // XSS
+    expect(findings[0]?.title).toContain("Cross-Site Scripting");
+    expect(findings[0]?.cwe).toBe("CWE-79");
+    expect(findings[0]?.trace.sinkClass).toBe("code-injection");
+
+    // CORS
+    expect(findings[1]?.title).toContain("CORS");
+    expect(findings[1]?.cwe).toBe("CWE-942");
+    expect(findings[1]?.trace.sinkClass).toBe("secret-exposure");
+
+    // CRLF
+    expect(findings[2]?.title).toContain("CRLF");
+    expect(findings[2]?.cwe).toBe("CWE-113");
+    expect(findings[2]?.trace.sinkClass).toBe("ssrf");
+
+    // SSTI
+    expect(findings[3]?.title).toContain("SSTI");
+    expect(findings[3]?.cwe).toBe("CWE-1336");
+    expect(findings[3]?.trace.sinkClass).toBe("code-injection");
+  });
+
+  it("properly classifies DAST findings containing a code property as endpoint scope", () => {
+    const mockResult: ScanResultRead = {
+      id: "res-dast-nasa",
+      scan_job_id: "job-nasa-dast",
+      created_at: "2026-09-18T12:00:00.000Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        findings: [
+          {
+            code: "SEC_HEADER_MISSING_CSP",
+            title: "Content-Security-Policy header is missing",
+            severity: "low",
+            description: "Missing Content-Security-Policy response header",
+            host: "nasa.gov",
+            matched_at: "https://nasa.gov",
+          },
+          {
+            code: "SSL_TLS_WEAK_CIPHER",
+            title: "Weak Cipher Suites Enabled",
+            severity: "medium",
+            host: "nasa.gov:443",
+          },
+        ],
+      },
+    };
+
+    // 1. Inferred without explicit options
+    const findingsInferred = normalizeRemoteFindings(mockResult, "nasa.gov");
+    expect(findingsInferred.length).toBe(2);
+    expect(findingsInferred[0]?.scope).toBe("endpoint");
+    expect(findingsInferred[0]?.code).toBe("SEC_HEADER_MISSING_CSP");
+    expect(findingsInferred[0]?.ruleId).toBe("remote-sec-header-missing-csp");
+    expect(findingsInferred[1]?.scope).toBe("endpoint");
+    expect(findingsInferred[1]?.code).toBe("SSL_TLS_WEAK_CIPHER");
+
+    // 2. Explicit DAST profile options
+    const findingsExplicit = normalizeRemoteFindings(mockResult, "nasa.gov", {
+      isSast: false,
+      profile: "recon",
+    });
+    expect(findingsExplicit[0]?.scope).toBe("endpoint");
+    expect(findingsExplicit[1]?.scope).toBe("endpoint");
+  });
 });

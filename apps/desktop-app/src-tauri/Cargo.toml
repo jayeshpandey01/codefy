@@ -17,10 +17,20 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-http = "~2.7.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # No custom #[tauri::command]s are registered anywhere in this crate -- a
 # direct consequence of the Worker-only architecture: the frontend only ever
-# calls the dialog/fs plugins' own JS APIs (see src/bridge/workspaceFs.ts),
-# never a bespoke Rust command. See src/lib.rs.
+# calls the dialog/fs/updater/process/http plugins' own JS APIs (see
+# src/bridge/workspaceFs.ts, src/bridge/TauriBridgeClient.ts), never a
+# bespoke Rust command. See src/lib.rs.
+#
+# tauri-plugin-updater / tauri-plugin-process: back the release pipeline's
+# auto-update flow (release doc, Step 5).
+#
+# tauri-plugin-http: runs orchestrator requests from Rust, since the
+# orchestrator sends no CORS headers (docs/plans/desktop-backend-connection.md).

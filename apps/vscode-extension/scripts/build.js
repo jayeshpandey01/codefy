@@ -36,16 +36,21 @@ const hostConfig = {
   //  - vscode: provided by the host.
   //  - @ast-grep/napi: a native addon -- its own require()-based
   //    platform-binary loading must stay intact.
-  //  - web-tree-sitter: resolves its own runtime tree-sitter.wasm relative
+  //  - web-tree-sitter-legacy: resolves its own runtime tree-sitter.wasm relative
   //    to its module's own __dirname at load time (verified against its
   //    actual source: `scriptDirectory = __dirname + "/"`). Bundling it
   //    would make that __dirname resolve to dist/ instead of
-  //    node_modules/web-tree-sitter/, breaking wasm loading. Declared as a
+  //    node_modules/web-tree-sitter-legacy/, breaking wasm loading. Declared as a
   //    direct dependency of this app (like @ast-grep/napi) so it's
   //    physically resolvable once pnpm deploy relocates the bundle.
-  external: ["vscode", "@ast-grep/napi", "web-tree-sitter"],
+  external: [
+    "vscode",
+    "@ast-grep/napi",
+    "web-tree-sitter",
+    "web-tree-sitter-legacy",
+  ],
   sourcemap: true,
-  logLevel: "info",
+  logLevel: "info", minify: !watch,
   // @whoami/core's dist-node/index.js (bundled in, NOT external -- it's the
   // whole point of this bundle) uses `createRequire(import.meta.url)` in its
   // Node grammar loader (to require.resolve() tree-sitter-wasms' .wasm
@@ -61,6 +66,9 @@ const hostConfig = {
   define: {
     "import.meta.url": "__whoamiImportMetaUrl",
   },
+  logOverride: {
+    "empty-import-meta": "silent",
+  },
 };
 
 /** @type {import('esbuild').BuildOptions} */
@@ -74,7 +82,11 @@ const webviewConfig = {
   outfile: path.join(root, "dist/webview/main.js"),
   loader: { ".css": "css" },
   sourcemap: true,
-  logLevel: "info",
+  logLevel: "info", minify: !watch,
+  logOverride: {
+    "equals-negative-zero": "silent",
+    "duplicate-case": "silent",
+  },
 };
 
 async function run() {

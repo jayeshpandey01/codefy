@@ -65,12 +65,12 @@ export function ProblemsPanel({
 
   if (isCollapsed) {
     return (
-      <div className="flex items-center justify-between border-t border-[#303031] bg-[#252526] px-4 py-1 text-xs text-[#D4D4D4] select-none shrink-0 font-sans">
+      <div className="flex items-center justify-between border-t border-vscode-border bg-vscode-card px-4 py-1 text-xs text-vscode-fg select-none shrink-0 font-sans">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="flex items-center gap-1.5 rounded px-2 py-0.5 font-medium hover:bg-[#2A2D2E] transition cursor-pointer text-[#CCCCCC]"
+            className="flex items-center gap-1.5 rounded px-2 py-0.5 font-medium hover:bg-vscode-card-hover transition cursor-pointer text-vscode-fg"
           >
             <ChevronUpIcon size={12} />
             <span className="font-semibold uppercase text-[11px] tracking-wider">
@@ -78,7 +78,7 @@ export function ProblemsPanel({
             </span>
           </button>
         </div>
-        <span className="text-[11px] text-[#858585]">Click to expand</span>
+        <span className="text-[11px] text-vscode-muted">Click to expand</span>
       </div>
     );
   }
@@ -86,10 +86,10 @@ export function ProblemsPanel({
   return (
     <div
       style={{ height: `${height}px` }}
-      className="flex flex-col border-t border-[#303031] bg-[#252526] text-[#D4D4D4] select-none shrink-0 font-sans shadow-lg"
+      className="flex flex-col border-t border-vscode-border bg-vscode-card text-vscode-fg select-none shrink-0 font-sans shadow-lg"
     >
       {/* Panel Tabs & Filter Header */}
-      <div className="flex items-center justify-between border-b border-[#303031] bg-[#181818] px-3 py-1.5 text-xs shrink-0">
+      <div className="flex items-center justify-between border-b border-vscode-border bg-vscode-header px-3 py-1.5 text-xs shrink-0">
         {/* Left Tabs */}
         <div className="flex items-center gap-4">
           <button
@@ -97,12 +97,12 @@ export function ProblemsPanel({
             onClick={() => onSelectTab?.("problems")}
             className={`flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
               activeTab === "problems"
-                ? "text-[#75BEFF] border-b-2 border-[#007ACC] pb-0.5"
-                : "text-[#858585] hover:text-[#D4D4D4]"
+                ? "text-severity-medium border-b-2 border-vscode-focus pb-0.5"
+                : "text-vscode-muted hover:text-vscode-fg"
             }`}
           >
             <span>Problems</span>
-            <span className="text-[10px] text-[#858585]">
+            <span className="text-[10px] text-vscode-muted">
               ({findings.length})
             </span>
           </button>
@@ -112,8 +112,8 @@ export function ProblemsPanel({
             onClick={() => onSelectTab?.("output")}
             className={`text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
               activeTab === "output"
-                ? "text-[#75BEFF] border-b-2 border-[#007ACC] pb-0.5"
-                : "text-[#858585] hover:text-[#D4D4D4]"
+                ? "text-severity-medium border-b-2 border-vscode-focus pb-0.5"
+                : "text-vscode-muted hover:text-vscode-fg"
             }`}
           >
             <span>Output</span>
@@ -124,8 +124,8 @@ export function ProblemsPanel({
             onClick={() => onSelectTab?.("terminal")}
             className={`text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
               activeTab === "terminal"
-                ? "text-[#75BEFF] border-b-2 border-[#007ACC] pb-0.5"
-                : "text-[#858585] hover:text-[#D4D4D4]"
+                ? "text-severity-medium border-b-2 border-vscode-focus pb-0.5"
+                : "text-vscode-muted hover:text-vscode-fg"
             }`}
           >
             <span>Terminal</span>
@@ -140,20 +140,20 @@ export function ProblemsPanel({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Filter (e.g. text, **/*.ts)"
-              className="w-full rounded border border-[#3C3C3C] bg-[#3C3C3C] py-0.5 pl-2 pr-6 text-xs text-[#D4D4D4] placeholder-[#A6A6A6] focus:border-[#007ACC] focus:outline-none"
+              className="w-full rounded border border-vscode-border bg-vscode-border py-0.5 pl-2 pr-6 text-xs text-vscode-fg placeholder-vscode-muted focus:border-vscode-focus focus:outline-none"
             />
             {searchQuery ? (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-1.5 text-[#858585] hover:text-[#D4D4D4] cursor-pointer"
+                className="absolute right-1.5 text-vscode-muted hover:text-vscode-fg cursor-pointer"
               >
                 <XIcon size={11} />
               </button>
             ) : (
               <SearchIcon
                 size={11}
-                className="absolute right-2 text-[#858585]"
+                className="absolute right-2 text-vscode-muted"
               />
             )}
           </div>
@@ -163,7 +163,7 @@ export function ProblemsPanel({
               type="button"
               onClick={onToggleCollapse}
               title="Collapse Panel"
-              className="p-1 text-[#858585] hover:text-white rounded-md hover:bg-[#2A2D2E] active:bg-[#323233] transition-all duration-150 cursor-pointer"
+              className="p-1 text-vscode-muted hover:text-vscode-fg rounded-md hover:bg-vscode-card-hover active:bg-vscode-card-hover transition-all duration-150 cursor-pointer"
             >
               <ChevronDownIcon size={14} />
             </button>
@@ -172,10 +172,10 @@ export function ProblemsPanel({
       </div>
 
       {/* Problems Data Table */}
-      <div className="flex-1 overflow-y-auto overflow-x-auto bg-[#1E1E1E]">
+      <div className="flex-1 overflow-y-auto overflow-x-auto bg-vscode-bg">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
-            <tr className="border-b border-[#303031] bg-[#252526] text-[10px] font-bold uppercase tracking-wider text-[#858585]">
+            <tr className="border-b border-vscode-border bg-vscode-card text-[10px] font-bold uppercase tracking-wider text-vscode-muted">
               <th className="py-1.5 px-3 w-28">Severity</th>
               <th className="py-1.5 px-3 w-40">Type</th>
               <th className="py-1.5 px-3">Description</th>
@@ -189,7 +189,7 @@ export function ProblemsPanel({
               <tr>
                 <td
                   colSpan={6}
-                  className="py-8 text-center text-xs text-[#858585]"
+                  className="py-8 text-center text-xs text-vscode-muted"
                 >
                   {findings.length === 0
                     ? "No problems detected in workspace."
@@ -213,10 +213,10 @@ export function ProblemsPanel({
                   <tr
                     key={finding.id}
                     onClick={() => onSelectFinding?.(finding)}
-                    className={`border-b border-[#303031]/60 transition cursor-pointer ${
+                    className={`border-b border-vscode-border/60 transition cursor-pointer ${
                       isSelected
-                        ? "bg-[#094771] text-white"
-                        : "hover:bg-[#2A2D2E]"
+                        ? "bg-vscode-card-selected text-vscode-fg font-semibold"
+                        : "hover:bg-vscode-card-hover"
                     }`}
                   >
                     {/* Severity */}
@@ -231,22 +231,22 @@ export function ProblemsPanel({
                     </td>
 
                     {/* Type */}
-                    <td className="py-1.5 px-3 font-mono text-[11px] text-[#CCCCCC]">
+                    <td className="py-1.5 px-3 font-mono text-[11px] text-vscode-fg">
                       {ruleTypeSlug}
                     </td>
 
                     {/* Description */}
-                    <td className="py-1.5 px-3 text-[#D4D4D4] max-w-md truncate">
+                    <td className="py-1.5 px-3 text-vscode-fg max-w-md truncate">
                       {finding.title}
                     </td>
 
                     {/* Location */}
-                    <td className="py-1.5 px-3 font-mono text-[11px] text-[#858585]">
+                    <td className="py-1.5 px-3 font-mono text-[11px] text-vscode-muted">
                       {primaryStep ? `Line ${primaryStep.line}` : "-"}
                     </td>
 
                     {/* File */}
-                    <td className="py-1.5 px-3 font-mono text-[11px] text-[#858585] truncate">
+                    <td className="py-1.5 px-3 font-mono text-[11px] text-vscode-muted truncate">
                       {fileBasename}
                     </td>
 
@@ -266,7 +266,7 @@ export function ProblemsPanel({
                               )
                             }
                             title="Jump to code line in editor"
-                            className="p-1 text-[#858585] hover:text-[#75BEFF] rounded-md hover:bg-[#2A2D2E] active:bg-[#323233] transition-all duration-150 cursor-pointer"
+                            className="p-1 text-vscode-muted hover:text-severity-medium rounded-md hover:bg-vscode-card-hover active:bg-vscode-card-hover transition-all duration-150 cursor-pointer"
                           >
                             <ExternalLinkIcon size={12} />
                           </button>
@@ -276,7 +276,7 @@ export function ProblemsPanel({
                             type="button"
                             onClick={() => onFocusOnGraph(finding)}
                             title="Highlight in Graph"
-                            className="p-1 text-[#858585] hover:text-[#75BEFF] rounded-md hover:bg-[#2A2D2E] active:bg-[#323233] transition-all duration-150 cursor-pointer"
+                            className="p-1 text-vscode-muted hover:text-severity-medium rounded-md hover:bg-vscode-card-hover active:bg-vscode-card-hover transition-all duration-150 cursor-pointer"
                           >
                             <PointOnGraphIcon size={12} />
                           </button>
@@ -286,7 +286,7 @@ export function ProblemsPanel({
                             type="button"
                             onClick={() => setDiffFinding(finding)}
                             title="Preview and Apply Suggested Fix"
-                            className="p-1 text-[#858585] hover:text-[#89D185] rounded-md hover:bg-[#2A2D2E] active:bg-[#323233] transition-all duration-150 cursor-pointer"
+                            className="p-1 text-vscode-muted hover:text-severity-low rounded-md hover:bg-vscode-card-hover active:bg-vscode-card-hover transition-all duration-150 cursor-pointer"
                           >
                             <WandIcon size={12} />
                           </button>

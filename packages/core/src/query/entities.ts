@@ -56,8 +56,12 @@ export function extractCwe(text: string): string | undefined {
 
 // Matches WhoAmI's example finding-id scheme (e.g. "F-10291") and the
 // orchestrator's remote-finding ids (e.g. "remote-recon-1699999999-0") —
-// any hyphenated alphanumeric token containing at least one digit.
-const FINDING_ID_PATTERN = /\b([a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d[a-z0-9-]*)\b/i;
+// any hyphenated alphanumeric token containing at least one digit. Excludes
+// "cwe-NNN" tokens: those name a vulnerability category (see extractCwe
+// below), never a literal finding id, and would otherwise false-positive
+// match here, sending "explain cwe-798" down a doomed exact-id lookup.
+const FINDING_ID_PATTERN =
+  /\b(?!cwe-?\d)([a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d[a-z0-9-]*)\b/i;
 
 /** Extracted from the *original* (non-lowercased) text so the returned id
  * preserves whatever casing the real Finding.id uses. */

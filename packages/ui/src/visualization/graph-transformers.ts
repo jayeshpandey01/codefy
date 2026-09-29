@@ -7,6 +7,43 @@ import type {
   WorkspaceGraph,
 } from "@whoami/types";
 
+/** Common test-file/test-directory path conventions across the languages
+ * this app scans (JS/TS, Python, Go, Java, Rust, Ruby, etc.). Used to filter
+ * the "Whole Code" architecture graphs, where test suites otherwise often
+ * dominate the node count relative to actual application code. */
+const TEST_PATH_PATTERN =
+  /(^|[/\\])(tests?|__tests__|__mocks__|spec|specs)([/\\]|$)|[._-](test|spec)s?\.[a-z0-9]+$|_test\.[a-z0-9]+$/i;
+
+export function isTestFilePath(filePath: string): boolean {
+  return TEST_PATH_PATTERN.test(filePath.replace(/\\/g, "/"));
+}
+
+/**
+ * Removes test-file nodes (and any edges touching them) from a workspace
+ * graph -- pass `hideTests: false` to return the graph unmodified. Parent
+ * "directory" nodes are kept even if all their children were test files,
+ * since collapsing empty parents correctly requires re-deriving child
+ * counts, which the graph view components already do when laying out
+ * whatever node/edge set they're given.
+ */
+export function filterWorkspaceGraphTestFiles(
+  graph: WorkspaceGraph | undefined,
+  hideTests: boolean,
+): WorkspaceGraph | undefined {
+  if (!graph || !hideTests) return graph;
+
+  const excludedIds = new Set(
+    graph.nodes.filter((n) => n.filePath && isTestFilePath(n.filePath)).map((n) => n.id),
+  );
+  if (excludedIds.size === 0) return graph;
+
+  const nodes = graph.nodes.filter((n) => !excludedIds.has(n.id));
+  const edges = graph.edges.filter(
+    (e) => !excludedIds.has(e.source) && !excludedIds.has(e.target),
+  );
+  return { nodes, edges };
+}
+
 export interface InterconnectedGraphOptions {
   /** When true, wraps nodes within parent GroupContainerNode by file */
   readonly groupByFile?: boolean;
@@ -209,6 +246,20 @@ export function buildUnifiedInterconnectedGraph(
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
+
+  // Pre-index functions in workspaceGraph by file path for fast O(1) connection
+  const functionsByFile = new Map<string, typeof workspaceGraph extends undefined ? never : NonNullable<typeof workspaceGraph>["nodes"][number][]>();
+  if (workspaceGraph) {
+    for (const n of workspaceGraph.nodes) {
+      if (n.type === "function" && n.filePath && n.line !== undefined) {
+        const norm = n.filePath.replace(/\\/g, "/");
+        const list = functionsByFile.get(norm) ?? [];
+        list.push(n);
+        functionsByFile.set(norm, list);
+      }
+    }
+  }
 
   // 1. Add architecture nodes
   if (workspaceGraph) {
@@ -237,6 +288,7 @@ export function buildUnifiedInterconnectedGraph(
 
     for (const archEdge of workspaceGraph.edges) {
       if (nodeIds.has(archEdge.source) && nodeIds.has(archEdge.target)) {
+        edgeIds.add(archEdge.id);
         edges.push({
           id: archEdge.id,
           source: archEdge.source,
@@ -264,20 +316,24 @@ export function buildUnifiedInterconnectedGraph(
     // Connect architecture node (File or Function) to the taint node
     if (workspaceGraph) {
       const normalizedFile = tNode.filePath.replace(/\\/g, "/");
-      const matchedFunction = workspaceGraph.nodes.find(
-        (w) =>
-          w.type === "function" &&
-          w.filePath.replace(/\\/g, "/") === normalizedFile &&
-          w.line !== undefined &&
-          Math.abs(w.line - tNode.line) <= 25,
-      );
+      const funcsInFile = functionsByFile.get(normalizedFile);
+      let matchedFunction: NonNullable<typeof workspaceGraph>["nodes"][number] | undefined;
+      if (funcsInFile) {
+        for (const fn of funcsInFile) {
+          if (fn.line !== undefined && Math.abs(fn.line - tNode.line) <= 25) {
+            matchedFunction = fn;
+            break;
+          }
+        }
+      }
 
       const parentArchNodeId =
         matchedFunction?.id ?? `file:${normalizedFile}`;
 
       if (nodeIds.has(parentArchNodeId)) {
         const linkEdgeId = `link:${parentArchNodeId}->${tNode.id}`;
-        if (!edges.some((e) => e.id === linkEdgeId)) {
+        if (!edgeIds.has(linkEdgeId)) {
+          edgeIds.add(linkEdgeId);
           const edgeType =
             tNode.role === "source"
               ? "originates_in"
@@ -299,7 +355,8 @@ export function buildUnifiedInterconnectedGraph(
   }
 
   for (const tEdge of taintGraph.edges) {
-    if (!edges.some((e) => e.id === tEdge.id)) {
+    if (!edgeIds.has(tEdge.id)) {
+      edgeIds.add(tEdge.id);
       edges.push(tEdge);
     }
   }
@@ -557,6 +614,18 @@ export function buildControlFlowGraph(finding?: Finding): {
 /**
  * Builds Supply Chain & Dependency Graph:
  * Maps external packages and workspace modules interconnected with internal source files.
+ *
+ * KNOWN LIMITATION (already documented in docs/CHAT-QUERY-ENGINE-SPEC.md
+ * §B.2/§B.8): `ALL_DEPENDENCIES` below is a fixed placeholder package list,
+ * not real dependency data -- no package.json parsing or OSV/CVE lookup
+ * exists anywhere in this codebase (packages/ui also has no fs access to
+ * read package.json itself even if it wanted to; that would need to happen
+ * upstream in packages/core's workspace-graph builder). Every workspace
+ * currently renders the exact same five fake packages with the exact same
+ * fabricated vulnerability counts, regardless of what's actually installed.
+ * This is a visual treatment of what a supply-chain view *would* look like,
+ * not a real one -- do not present its findingCount/severity as a real
+ * scan result anywhere in the UI.
  */
 export function buildSupplyChainGraph(
   workspaceGraph?: WorkspaceGraph,
@@ -571,6 +640,7 @@ export function buildSupplyChainGraph(
   const edges: GraphEdge[] = [];
   const addedIds = new Set<string>();
 
+  // Placeholder only -- see the KNOWN LIMITATION docstring above.
   const ALL_DEPENDENCIES = [
     { name: "express", version: "4.19.2", category: "Framework", vulns: 0 },
     { name: "pg", version: "8.11.3", category: "Database Driver", vulns: 1, severity: "critical" },
@@ -609,7 +679,7 @@ export function buildSupplyChainGraph(
         ? fileNodes.filter((n) => (n.findingCount ?? 0) > 0)
         : fileNodes.slice(0, 6);
 
-    targetFileNodes.forEach((fileNode) => {
+    targetFileNodes.forEach((fileNode, fileIndex) => {
       if (!addedIds.has(fileNode.id)) {
         addedIds.add(fileNode.id);
         nodes.push({
@@ -624,9 +694,13 @@ export function buildSupplyChainGraph(
           },
         });
 
-        // Link package to file
-        const matchedPkg =
-          targetDependencies[Math.floor(Math.random() * targetDependencies.length)];
+        // Link package to file. NOTE: targetDependencies is a placeholder
+        // package list, not real dependency data (see this function's
+        // docstring) -- this assignment is deliberately deterministic
+        // (round-robin by file index) rather than random, so the same
+        // workspace renders the same graph on every call instead of
+        // reshuffling its edges on each recompute.
+        const matchedPkg = targetDependencies[fileIndex % targetDependencies.length];
         if (matchedPkg) {
           edges.push({
             id: `dep:${matchedPkg.name}->${fileNode.id}`,
@@ -645,9 +719,63 @@ export function buildSupplyChainGraph(
   return { nodes, edges };
 }
 
+function parseEndpointInfo(
+  rawPathOrUrl: string,
+  title?: string,
+): { method: string; path: string; host?: string } {
+  let method = "GET";
+  const methodMatch = (title || "").match(
+    /\b(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\b/i,
+  );
+  if (methodMatch && methodMatch[1]) {
+    method = methodMatch[1].toUpperCase();
+  }
+
+  const portMatch = (title || "").match(/open port:\s*(\d+)(?:\/(\w+))?/i);
+  if (portMatch && portMatch[1]) {
+    const portNum = portMatch[1];
+    const protocol = (portMatch[2] || "TCP").toUpperCase();
+    return {
+      method: protocol,
+      path: `:${portNum}`,
+      host:
+        rawPathOrUrl.includes(":") && !rawPathOrUrl.startsWith("http")
+          ? rawPathOrUrl.split(":")[0]
+          : undefined,
+    };
+  }
+
+  let host: string | undefined;
+  let path = rawPathOrUrl || "/";
+
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    try {
+      const parsed = new URL(path);
+      host = parsed.host;
+      path = parsed.pathname + (parsed.search || "");
+    } catch {
+      // Url parsing fallback
+    }
+  } else {
+    const firstSlash = path.indexOf("/");
+    if (firstSlash !== -1 && (path.includes(".") || path.includes(":"))) {
+      host = path.slice(0, firstSlash);
+      path = path.slice(firstSlash);
+    }
+  }
+
+  if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
+
+  return { method, path, host };
+}
+
 /**
  * Builds Remote Attack Surface & Reconnaissance Topology:
  * Maps Host -> Subdomains -> Port Services -> Discovered Endpoints -> Active Probes.
+ * Maps Host -> Discovered Endpoints -> Active Probes dynamically from findings.
+ * If no DAST findings exist (i.e. target has not been scanned), returns an empty graph.
  */
 export function buildRemoteAttackSurfaceGraph(
   findings?: readonly Finding[],
@@ -661,85 +789,186 @@ export function buildRemoteAttackSurfaceGraph(
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
-  // 1. Target Root Host
-  const hostId = `host:${targetHost}`;
+  const remoteFindings = (findings || []).filter((f) => {
+    if (f.scope === "endpoint") return true;
+    if (f.id.startsWith("remote-")) return true;
+    if (
+      f.trace?.steps?.some(
+        (s) => s.filePath.startsWith("http://") || s.filePath.startsWith("https://"),
+      )
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  if (remoteFindings.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  const activeFindings =
+    pipelineMode === "bugs"
+      ? remoteFindings.filter((f) => f.severity !== "low")
+      : remoteFindings;
+
+  if (activeFindings.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  // Determine root target host from argument or by parsing findings
+  let discoveredHost =
+    targetHost && targetHost.trim() !== "" ? targetHost.trim() : undefined;
+  if (!discoveredHost) {
+    for (const f of activeFindings) {
+      const step0Label = f.trace?.steps?.[0]?.label || "";
+      if (step0Label.startsWith("Target Scope: ")) {
+        const candidate = step0Label.replace("Target Scope: ", "").trim();
+        if (candidate) {
+          discoveredHost = candidate;
+          break;
+        }
+      }
+      const stepPath = f.trace?.steps?.[0]?.filePath || "";
+      const parsed = parseEndpointInfo(stepPath, f.title);
+      if (parsed.host) {
+        discoveredHost = parsed.host;
+        break;
+      }
+    }
+  }
+  const rootHost = discoveredHost || "target";
+
+  // 1. Target Root Host Node
+  const hostId = `host:${rootHost}`;
   nodes.push({
     id: hostId,
     role: "boundary",
-    label: targetHost,
+    label: rootHost,
     filePath: "",
     line: 0,
     metadata: {
       category: "ingress",
-      description: "Primary Target Host (Orchestrator Scope)",
+      description: "Target Host (Orchestrator Scope)",
     },
   });
 
   // 2. Discovered Endpoints
-  const allEndpoints = [
-    { method: "POST", path: "/api/v1/auth/login", status: "Secure", role: "endpoint" },
-    { method: "GET", path: "/api/v1/users/:id/profile", status: "Vulnerable", role: "endpoint", sev: "critical" },
-    { method: "POST", path: "/api/v1/files/upload", status: "Vulnerable", role: "endpoint", sev: "high" },
-    { method: "GET", path: "/api/v1/preview?url=", status: "Vulnerable", role: "endpoint", sev: "medium" },
-    { method: "GET", path: "/health", status: "Public", role: "endpoint" },
-  ];
+  const endpointMap = new Map<
+    string,
+    {
+      id: string;
+      method: string;
+      path: string;
+      rawPath: string;
+      severities: Set<Finding["severity"]>;
+      findings: Finding[];
+    }
+  >();
 
-  const targetEndpoints =
-    pipelineMode === "bugs"
-      ? allEndpoints.filter((ep) => ep.status === "Vulnerable")
-      : allEndpoints;
+  for (const f of activeFindings) {
+    const rawPath =
+      f.trace?.steps?.[f.trace.steps.length - 1]?.filePath ||
+      f.trace?.steps?.[0]?.filePath ||
+      "";
+    const { method, path } = parseEndpointInfo(rawPath, f.title);
+    const epKey = `${method}:${path}`;
 
-  targetEndpoints.forEach((ep) => {
-    const epId = `ep:${ep.method}:${ep.path}`;
+    let epEntry = endpointMap.get(epKey);
+    if (!epEntry) {
+      epEntry = {
+        id: `ep:${method}:${path}`,
+        method,
+        path,
+        rawPath,
+        severities: new Set<Finding["severity"]>(),
+        findings: [],
+      };
+      endpointMap.set(epKey, epEntry);
+    }
+    epEntry.severities.add(f.severity);
+    epEntry.findings.push(f);
+  }
+
+  const severityRank: Record<string, number> = {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1,
+  };
+
+  for (const ep of endpointMap.values()) {
+    let topSeverity: Finding["severity"] = "low";
+    let topRank = 0;
+    for (const sev of ep.severities) {
+      const rank = severityRank[sev] ?? 0;
+      if (rank > topRank) {
+        topRank = rank;
+        topSeverity = sev;
+      }
+    }
+
+    const isVulnerable =
+      topSeverity === "critical" ||
+      topSeverity === "high" ||
+      topSeverity === "medium";
+    const status = isVulnerable ? "Vulnerable" : "Secure";
+
     nodes.push({
-      id: epId,
+      id: ep.id,
       role: "endpoint",
       label: `${ep.method} ${ep.path}`,
-      filePath: "src/routes.ts",
+      filePath: ep.rawPath || rootHost,
       line: 1,
       metadata: {
         category: ep.method,
-        severity: ep.sev,
-        status: ep.status,
+        severity: isVulnerable ? topSeverity : undefined,
+        status,
       },
     });
 
     edges.push({
-      id: `route:${hostId}->${epId}`,
+      id: `route:${hostId}->${ep.id}`,
       source: hostId,
-      target: epId,
+      target: ep.id,
       label: "routes to",
-      tainted: ep.status === "Vulnerable",
-      type: ep.status === "Vulnerable" ? "pulse" : "step",
-      animated: ep.status === "Vulnerable",
+      tainted: isVulnerable,
+      type: isVulnerable ? "pulse" : "step",
+      animated: isVulnerable,
     });
 
-    // 3. Probes connected to vulnerable endpoints
-    if (ep.status === "Vulnerable") {
-      const probeId = `probe:${ep.method}:${ep.path}`;
+    // 3. Probes attached to this endpoint
+    for (const f of ep.findings) {
+      const isFindingVuln =
+        f.severity === "critical" ||
+        f.severity === "high" ||
+        f.severity === "medium";
+      const probeId = `probe:${f.id}`;
+
       nodes.push({
         id: probeId,
         role: "probe",
-        label: `Exploit Probe: ${ep.path}`,
-        filePath: "recon/nuclei.log",
+        label: `Probe: ${f.title}`,
+        filePath: ep.rawPath || rootHost,
         line: 1,
         metadata: {
-          severity: ep.sev,
+          severity: f.severity,
           category: "probe",
+          description: f.description,
+          cwe: f.cwe,
         },
       });
 
       edges.push({
-        id: `probe-edge:${probeId}->${epId}`,
+        id: `probe-edge:${probeId}->${ep.id}`,
         source: probeId,
-        target: epId,
+        target: ep.id,
         label: "probes",
-        tainted: true,
+        tainted: isFindingVuln,
         type: "pulse",
         animated: true,
       });
     }
-  });
+  }
 
   return { nodes, edges };
 }

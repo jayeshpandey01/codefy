@@ -21,3 +21,8 @@
 export function resolveGrammarBaseUrl(): string {
   return new URL("/grammars/", self.location.href).href;
 }
+
+/** Modern parser grammars registered by @ast-grep/wasm. */
+export function resolveAstGrepGrammarBaseUrl(): string {
+  return new URL("/ast-grep-grammars/", self.location.href).href;
+}

@@ -24,6 +24,10 @@ function detectSinkClass(title: string, desc?: string, code?: string): SinkClass
     text.includes("credential") ||
     text.includes("token") ||
     text.includes("trufflehog") ||
+    text.includes("gitleaks") ||
+    text.includes("entropy") ||
+    text.includes("cors") ||
+    text.includes("cwe-942") ||
     text.includes("jwt") ||
     text.includes("api_key") ||
     text.includes("password") ||
@@ -43,16 +47,33 @@ function detectSinkClass(title: string, desc?: string, code?: string): SinkClass
     text.includes("ssrf") ||
     text.includes("request forgery") ||
     text.includes("open redirect") ||
+    text.includes("crlf") ||
+    text.includes("cwe-113") ||
     text.includes("cwe-918")
   ) {
     return "ssrf";
   }
   if (
+    text.includes("xss") ||
+    text.includes("cross-site scripting") ||
+    text.includes("ssti") ||
+    text.includes("template injection") ||
+    text.includes("eval") ||
+    text.includes("code injection") ||
+    text.includes("cwe-79") ||
+    text.includes("cwe-94") ||
+    text.includes("cwe-1336")
+  ) {
+    return "code-injection";
+  }
+  if (
     text.includes("exec") ||
     text.includes("command") ||
+    /\b(exec|execa|spawn|command|shell|system-call)\b/i.test(text) ||
     text.includes("rce") ||
     text.includes("shell") ||
     text.includes("system-call") ||
+    text.includes("command injection") ||
     text.includes("cwe-78")
   ) {
     return "command-injection";
@@ -64,13 +85,6 @@ function detectSinkClass(title: string, desc?: string, code?: string): SinkClass
     text.includes("cwe-22")
   ) {
     return "path-traversal";
-  }
-  if (
-    text.includes("eval") ||
-    text.includes("code injection") ||
-    text.includes("cwe-94")
-  ) {
-    return "code-injection";
   }
   if (
     text.includes("prototype") ||
@@ -116,6 +130,11 @@ function extractCwe(rawCwe?: string | string[]): string | undefined {
   return match && match[1] ? match[1].toUpperCase() : rawCwe;
 }
 
+export interface NormalizeRemoteFindingsOptions {
+  isSast?: boolean;
+  profile?: string;
+}
+
 /**
  * Normalizes findings from remote scanners (DAST: Nuclei, HTTPX, Nmap and SAST: Joern CPG, Semgrep, TruffleHog)
  * into native WhoAmI Finding structures.
@@ -123,6 +142,7 @@ function extractCwe(rawCwe?: string | string[]): string | undefined {
 export function normalizeRemoteFindings(
   result: ScanResultRead,
   targetValue = "target",
+  options?: NormalizeRemoteFindingsOptions,
 ): Finding[] {
   const findings: Finding[] = [];
   const createdAt = result.created_at || new Date().toISOString();
@@ -130,7 +150,66 @@ export function normalizeRemoteFindings(
 
   for (let i = 0; i < rawFindings.length; i++) {
     const raw = rawFindings[i]!;
-    const isSastFinding = "code" in raw && typeof raw.code === "string";
+    const rawAny = raw as unknown as Record<string, unknown>;
+    const rawCode = typeof rawAny.code === "string" ? rawAny.code : "";
+    const evidenceObj =
+      typeof rawAny.evidence === "object" && rawAny.evidence !== null
+        ? (rawAny.evidence as Record<string, unknown>)
+        : undefined;
+
+    const hasSastToolPrefix =
+      rawCode.startsWith("JOERN") ||
+      rawCode.startsWith("SEMGREP") ||
+      rawCode.startsWith("TRUFFLEHOG") ||
+      rawCode.startsWith("GITLEAKS") ||
+      rawCode.startsWith("CODEQL") ||
+      rawCode.startsWith("AST_GREP");
+
+    const hasSastEvidence = Boolean(
+      evidenceObj?.flow ||
+      evidenceObj?.detector ||
+      evidenceObj?.check_id ||
+      (typeof evidenceObj?.file === "string" &&
+        !evidenceObj.file.includes("://") &&
+        /\.(tsx?|jsx?|py|java|go|c|cpp|rs|php|rb|html|vue|svelte)$/i.test(evidenceObj.file))
+    );
+
+    const hasDastIndicators = Boolean(
+      rawAny.matched_at ||
+      rawAny.template_id ||
+      rawAny.host ||
+      rawCode.startsWith("SEC_HEADER_") ||
+      rawCode.startsWith("SSL_") ||
+      rawCode.startsWith("TLS_") ||
+      rawCode.startsWith("CORS_") ||
+      rawCode.startsWith("CSP_") ||
+      rawCode.startsWith("WAF_") ||
+      rawCode.startsWith("PORT_") ||
+      rawCode.startsWith("OPEN_PORT_") ||
+      rawCode.startsWith("DNS_") ||
+      rawCode.startsWith("NUCLEI_") ||
+      rawCode.startsWith("DALFOX_") ||
+      rawCode.startsWith("KATANA_") ||
+      rawCode.startsWith("HTTPX_") ||
+      rawCode.startsWith("FEROX_") ||
+      rawCode.startsWith("FFUF_") ||
+      rawCode.startsWith("ZAP_") ||
+      rawCode.startsWith("NIKTO_")
+    );
+
+    let isSastFinding: boolean;
+    if (options?.isSast !== undefined) {
+      isSastFinding = options.isSast;
+    } else if (options?.profile) {
+      isSastFinding = options.profile.startsWith("sast-");
+    } else if (hasDastIndicators) {
+      isSastFinding = false;
+    } else if (hasSastToolPrefix || hasSastEvidence) {
+      isSastFinding = true;
+    } else {
+      isSastFinding = "code" in raw && typeof raw.code === "string";
+    }
+
     const findingId = `remote-${result.scan_job_id}-${i + 1}`;
     const severity = mapSeverity(raw.severity);
 
@@ -145,6 +224,13 @@ export function normalizeRemoteFindings(
       const isJoern = codeStr.startsWith("JOERN") || Boolean(evidence?.flow);
       const isTrufflehog =
         codeStr.startsWith("TRUFFLEHOG") || Boolean(evidence?.detector);
+      const isGitleaks =
+        codeStr.startsWith("GITLEAKS") ||
+        item.title.toLowerCase().includes("gitleaks") ||
+        codeStr.toLowerCase().includes("entropy");
+      const isCodeql =
+        codeStr.startsWith("CODEQL") ||
+        item.title.toLowerCase().includes("codeql");
       const isSemgrep = codeStr.startsWith("SEMGREP") || Boolean(evidence?.check_id);
 
       const sinkClass = detectSinkClass(item.title, item.description, codeStr);
@@ -164,8 +250,8 @@ export function normalizeRemoteFindings(
 
       let traceSteps: TaintStep[] = [];
 
-      // 1. Joern CPG with multi-step taint propagation flow
-      if (isJoern && evidence?.flow && evidence.flow.length > 0) {
+      // 1. Joern CPG or CodeQL with multi-step taint propagation flow
+      if ((isJoern || isCodeql) && evidence?.flow && evidence.flow.length > 0) {
         const flow = evidence.flow;
         traceSteps = flow.map((step, idx) => {
           const parsed = parseLocation(
@@ -191,14 +277,15 @@ export function normalizeRemoteFindings(
             line: parsed.line,
           };
         });
-      } else if (isTrufflehog) {
-        // 2. TruffleHog Secret Detection
+      } else if (isTrufflehog || isGitleaks) {
+        // 2. Secret Detection (TruffleHog / Gitleaks)
         const parsed = parseLocation(
           evidence?.location,
           evidence?.file || targetValue,
           evidence?.line || 1,
         );
-        const detectorName = evidence?.detector || "Secret";
+        const detectorName =
+          evidence?.detector || (isGitleaks ? "Gitleaks Entropy Secret" : "Secret");
         const verifiedLabel = evidence?.verified ? " [VERIFIED LIVE]" : "";
 
         traceSteps = [
@@ -216,7 +303,7 @@ export function normalizeRemoteFindings(
           },
         ];
       } else {
-        // 3. Semgrep or Generic SAST
+        // 3. Semgrep, CodeQL single-step, or Generic SAST
         const parsed = parseLocation(
           evidence?.location,
           evidence?.file || targetValue,
@@ -263,7 +350,7 @@ export function normalizeRemoteFindings(
         description: item.description,
         cwe,
         code: codeStr,
-        scope: isTrufflehog ? "secrets" : "code",
+        scope: isTrufflehog || isGitleaks ? "secrets" : "code",
         hint: item.remediation,
         fix: item.remediation,
         link: rotationLink || undefined,
@@ -274,18 +361,30 @@ export function normalizeRemoteFindings(
         createdAt,
       });
     } else {
-      // DAST Finding (Nuclei, Nmap, HTTPX, FFUF)
-      const item = raw as RemoteFindingSummary;
-      const ruleSlug = item.template_id || slugify(item.title);
+      // DAST Finding (Nuclei, Nmap, HTTPX, FFUF, Dalfox, etc.)
+      const item = raw as RemoteFindingSummary & { code?: string };
+      const rawCode = typeof item.code === "string" ? item.code : "";
+      const ruleSlug = item.template_id || (rawCode ? slugify(rawCode) : slugify(item.title));
       const hostOrPath = item.matched_at || item.host || targetValue;
-      const sinkClass = detectSinkClass(item.title, item.description);
+      const sinkClass = detectSinkClass(item.title, item.description, rawCode);
+      const titleLower = item.title.toLowerCase();
       const cwe =
         extractCwe(item.cwe) ||
-        (severity === "critical"
-          ? "CWE-94"
-          : severity === "high"
-            ? "CWE-200"
-            : "CWE-16");
+        (titleLower.includes("xss") || titleLower.includes("cross-site scripting")
+          ? "CWE-79"
+          : titleLower.includes("ssti") || titleLower.includes("template injection")
+            ? "CWE-1336"
+            : titleLower.includes("crlf")
+              ? "CWE-113"
+              : titleLower.includes("cors")
+                ? "CWE-942"
+                : titleLower.includes("takeover")
+                  ? "CWE-284"
+                  : severity === "critical"
+                    ? "CWE-94"
+                    : severity === "high"
+                      ? "CWE-200"
+                      : "CWE-16");
 
       const traceSteps: TaintStep[] = [
         {
@@ -316,7 +415,7 @@ export function normalizeRemoteFindings(
         title: item.title,
         description: item.description || `Detected on ${hostOrPath}`,
         cwe,
-        code: item.template_id || "remote_vuln",
+        code: rawCode || item.template_id || "remote_vuln",
         scope: "endpoint",
         trace: {
           steps: traceSteps,

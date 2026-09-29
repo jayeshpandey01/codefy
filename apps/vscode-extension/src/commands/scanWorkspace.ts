@@ -20,7 +20,7 @@ export function registerScanWorkspaceCommand(
       return;
     }
 
-    const panel = WhoAmIPanel.createOrShow(context.extensionUri, engineHost);
+    const panel = WhoAmIPanel.createOrShow(context, engineHost);
 
     await vscode.window.withProgress(
       {

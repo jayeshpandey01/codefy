@@ -1,8 +1,15 @@
 import * as vscode from "vscode";
-import { ScanOrchestratorClient } from "@whoami/core/node";
+import {
+  GatewayAuthClient,
+  ScanOrchestratorClient,
+  cleanCredential,
+  handleOrchestratorMessage,
+} from "@whoami/core/node";
 import {
   type BridgeMessage,
   type Finding,
+  type UpdateNotice,
+  type UserAccount,
   toStructuredError,
 } from "@whoami/types";
 import type { EngineHost } from "../engine/engineHost.js";
@@ -15,46 +22,96 @@ import { RequestRegistry } from "./requestRegistry.js";
  * and posts results/progress/errors back.
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+
+/**
+ * Single globalState key holding the whole Settings/History persistence
+ * blob (account, settings, workspaces, scan sessions) -- see
+ * apps/vscode-extension/src/db/database.ts, the extension-host-backed
+ * counterpart to the desktop app's IndexedDB database.ts. The webview owns
+ * the shape entirely; the extension host just stores and returns it.
+ */
+const PERSISTENCE_KEY = "whoami.persistence.v1";
+const PERSISTENCE_STORES = [
+  "kv_store",
+  "workspaces",
+  "scan_sessions",
+  "findings",
+  "chat_history",
+] as const;
+
+type PersistenceStoreName = (typeof PERSISTENCE_STORES)[number];
+type PersistenceBuckets = Record<
+  PersistenceStoreName,
+  Record<string, unknown>
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function loadEnvFile(): Record<string, string> {
   const env: Record<string, string> = {};
-  const candidates: string[] = [];
+  const searchDirs = new Set<string>();
 
   const folders = vscode.workspace.workspaceFolders;
   if (folders) {
     for (const f of folders) {
-      candidates.push(path.join(f.uri.fsPath, ".env"));
-      candidates.push(path.join(f.uri.fsPath, ".env.local"));
+      let d = f.uri.fsPath;
+      for (let i = 0; i < 5; i++) {
+        searchDirs.add(d);
+        const parent = path.dirname(d);
+        if (parent === d) break;
+        d = parent;
+      }
     }
   }
-  candidates.push(path.join(process.cwd(), ".env"));
 
-  for (const filePath of candidates) {
-    try {
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, "utf-8");
-        for (const line of content.split("\n")) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith("#")) continue;
-          const eqIdx = trimmed.indexOf("=");
-          if (eqIdx > 0) {
-            const key = trimmed.slice(0, eqIdx).trim();
-            const val = trimmed
-              .slice(eqIdx + 1)
-              .trim()
-              .replace(/^['"]|['"]$/g, "");
-            if (key && !(key in env)) {
-              env[key] = val;
-              if (!process.env[key]) {
+  let cwd = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    searchDirs.add(cwd);
+    const parent = path.dirname(cwd);
+    if (parent === cwd) break;
+    cwd = parent;
+  }
+
+  try {
+    let curDir = __dirname;
+    for (let i = 0; i < 5; i++) {
+      searchDirs.add(curDir);
+      const parent = path.dirname(curDir);
+      if (parent === curDir) break;
+      curDir = parent;
+    }
+  } catch {
+    // Ignore __dirname access issues
+  }
+
+  // Load .env first, then let .env.local override it (standard dotenv precedence)
+  for (const fileName of [".env", ".env.local"]) {
+    for (const dir of searchDirs) {
+      const filePath = path.join(dir, fileName);
+      try {
+        if (fs.existsSync(filePath)) {
+          const content = fs.readFileSync(filePath, "utf-8");
+          for (const line of content.split("\n")) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith("#")) continue;
+            const eqIdx = trimmed.indexOf("=");
+            if (eqIdx > 0) {
+              const key = trimmed.slice(0, eqIdx).trim();
+              const val = cleanCredential(trimmed.slice(eqIdx + 1).trim());
+              if (key && val) {
+                env[key] = val;
                 process.env[key] = val;
               }
             }
           }
         }
+      } catch {
+        // Ignore non-readable paths
       }
-    } catch {
-      // Ignore non-readable paths
     }
   }
 
@@ -66,14 +123,32 @@ export class ExtensionBridge {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly remoteFindingsById = new Map<string, Finding>();
   private orchestratorClient: ScanOrchestratorClient;
+  // Real Node.js, no browser CSP -- unlike the webview (connect-src 'none'
+  // by design, see getWebviewHtml.ts), the extension host can make direct
+  // HTTPS calls to the AI Gateway's /developer/auth/* endpoints. The
+  // webview only ever sends auth-*-request messages over the bridge.
+  private readonly gatewayAuthClient = new GatewayAuthClient();
 
   constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly engineHost: EngineHost,
+    private readonly context: vscode.ExtensionContext,
+    /** From WhoAmIPanel.pendingUpdateNotice, consumed once -- see the
+     * "persistence-load-request" case below for why it's sent from there
+     * rather than straight out of this constructor. */
+    private pendingUpdateNotice: UpdateNotice | null = null,
   ) {
     this.orchestratorClient = this.createOrchestratorClient();
 
+    const envWatcher = vscode.workspace.createFileSystemWatcher("**/.env*");
     this.disposables.push(
+      envWatcher,
+      envWatcher.onDidChange(() => {
+        this.orchestratorClient = this.createOrchestratorClient();
+      }),
+      envWatcher.onDidCreate(() => {
+        this.orchestratorClient = this.createOrchestratorClient();
+      }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("whoami.orchestrator")) {
           this.orchestratorClient = this.createOrchestratorClient();
@@ -97,26 +172,38 @@ export class ExtensionBridge {
     const env = loadEnvFile();
     const config = vscode.workspace.getConfiguration("whoami");
     const baseUrl =
-      config.get<string>("orchestrator.url") ||
-      process.env.ORCHESTRATOR_URL ||
+      cleanCredential(config.get<string>("orchestrator.url")) ||
+      cleanCredential(process.env.ORCHESTRATOR_URL) ||
       env.ORCHESTRATOR_URL ||
       "https://axiom-xjkc.onrender.com";
     const apiKey =
-      config.get<string>("orchestrator.apiKey") ||
-      process.env.API_KEY ||
+      cleanCredential(config.get<string>("orchestrator.apiKey")) ||
+      cleanCredential(process.env.API_KEY) ||
       env.API_KEY ||
-      "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
+      undefined;
     const adminApiKey =
-      config.get<string>("orchestrator.adminApiKey") ||
-      process.env.ADMIN_API_KEY ||
+      cleanCredential(config.get<string>("orchestrator.adminApiKey")) ||
+      cleanCredential(process.env.ADMIN_API_KEY) ||
       env.ADMIN_API_KEY ||
-      "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
+      undefined;
+
+    const mask = (key?: string) =>
+      key ? `${key.slice(0, 4)}...${key.slice(-4)} (len ${key.length})` : "none";
+
+    console.info(
+      `[whoami:bridge] Orchestrator client initialized (url: ${baseUrl}, apiKey: ${mask(apiKey)}, adminApiKey: ${mask(adminApiKey)})`,
+    );
 
     return new ScanOrchestratorClient({
       baseUrl,
-      apiKey: apiKey || undefined,
-      adminApiKey: adminApiKey || undefined,
+      apiKey,
+      adminApiKey,
     });
+  }
+
+  private getOrchestratorClient(): ScanOrchestratorClient {
+    this.orchestratorClient = this.createOrchestratorClient();
+    return this.orchestratorClient;
   }
 
   /** Invoked by the whoami.scanWorkspace command -- not a reply to a webview request. */
@@ -136,6 +223,18 @@ export class ExtensionBridge {
 
   private async handleMessage(message: BridgeMessage): Promise<void> {
     try {
+      // Cloud orchestrator requests: shared with the desktop app (see
+      // packages/core/src/orchestrator/bridge-router.ts).
+      if (
+        await handleOrchestratorMessage(
+          () => this.getOrchestratorClient(),
+          message,
+          (reply) => this.post(reply),
+        )
+      ) {
+        return;
+      }
+
       switch (message.type) {
         case "pick-folder-request": {
           const defaultUri = message.defaultPath && message.defaultPath.trim()
@@ -177,147 +276,33 @@ export class ExtensionBridge {
             message.requestId,
           );
           return;
-        case "register-target-request": {
-          const target = await this.orchestratorClient.registerTarget(
-            message.target,
-          );
-          this.post({
-            type: "register-target-result",
-            target,
-            requestId: message.requestId,
-          });
+        case "register-target-request":
+        case "list-targets-request":
+        case "get-target-request":
+        case "submit-remote-scan-request":
+        case "list-scans-request":
+        case "get-remote-scan-request":
+        case "cancel-remote-scan-request":
+        case "retry-scan-request":
+        case "get-remote-scan-result-request":
+        case "list-audit-events-request":
+        case "get-platform-stats-request":
+        case "poll-remote-scan-request":
+        case "get-sast-profiles-request":
+        case "submit-sast-scan-request":
+        case "list-sast-scans-request":
+        case "get-sast-scan-request":
+        case "cancel-sast-scan-request":
+        case "retry-sast-scan-request":
+        case "get-sast-scan-result-request":
+        case "poll-remote-scans-request":
+        case "poll-sast-scan-request":
+          // Handled by handleOrchestratorMessage() before this switch --
+          // listed here only so the exhaustiveness check below still holds.
           return;
-        }
-        case "submit-remote-scan-request": {
-          const scan = await this.orchestratorClient.submitScan(
-            message.scan,
-            message.idempotencyKey,
-          );
-          this.post({
-            type: "submit-remote-scan-result",
-            scan,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "get-remote-scan-request": {
-          const scan = await this.orchestratorClient.getScan(message.scanId);
-          this.post({
-            type: "get-remote-scan-result",
-            scan,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "cancel-remote-scan-request": {
-          const scan = await this.orchestratorClient.cancelScan(message.scanId);
-          this.post({
-            type: "cancel-remote-scan-result",
-            scan,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "get-remote-scan-result-request": {
-          const result = await this.orchestratorClient.getScanResult(
-            message.scanId,
-          );
-          this.post({
-            type: "get-remote-scan-result-result",
-            result,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "list-audit-events-request": {
-          const events = await this.orchestratorClient.listAuditEvents();
-          this.post({
-            type: "list-audit-events-result",
-            events,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "poll-remote-scan-request": {
-          const pollRes = await this.orchestratorClient.pollScanUntilComplete(
-            message.scanId,
-          );
-          this.post({
-            type: "poll-remote-scan-result",
-            scan: pollRes.scan,
-            result: pollRes.result,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "get-sast-profiles-request": {
-          const profiles = await this.orchestratorClient.getSastProfiles();
-          this.post({
-            type: "get-sast-profiles-result",
-            profiles,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "submit-sast-scan-request": {
-          const scan = await this.orchestratorClient.submitSastScan(
-            message.scan,
-            message.idempotencyKey,
-          );
-          this.post({
-            type: "submit-sast-scan-result",
-            scan,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "get-sast-scan-request": {
-          const scan = await this.orchestratorClient.getSastScan(
-            message.scanId,
-          );
-          this.post({
-            type: "get-sast-scan-result",
-            scan,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "cancel-sast-scan-request": {
-          const scan = await this.orchestratorClient.cancelSastScan(
-            message.scanId,
-          );
-          this.post({
-            type: "cancel-sast-scan-result",
-            scan,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "get-sast-scan-result-request": {
-          const result = await this.orchestratorClient.getSastScanResult(
-            message.scanId,
-          );
-          this.post({
-            type: "get-sast-scan-result-result",
-            result,
-            requestId: message.requestId,
-          });
-          return;
-        }
-        case "poll-sast-scan-request": {
-          const pollRes =
-            await this.orchestratorClient.pollSastScanUntilComplete(
-              message.scanId,
-            );
-          this.post({
-            type: "poll-sast-scan-result",
-            scan: pollRes.scan,
-            result: pollRes.result,
-            requestId: message.requestId,
-          });
-          return;
-        }
         case "pick-folder-result":
+        case "poll-remote-scans-progress":
+        case "poll-remote-scans-result":
         case "scan-workspace-progress":
         case "scan-workspace-result":
         case "get-trace-result":
@@ -325,23 +310,251 @@ export class ExtensionBridge {
         case "apply-fix-result":
         case "run-poc-result":
         case "register-target-result":
+        case "list-targets-result":
+        case "get-target-result":
         case "submit-remote-scan-result":
+        case "list-scans-result":
         case "get-remote-scan-result":
         case "cancel-remote-scan-result":
+        case "retry-scan-result":
         case "get-remote-scan-result-result":
         case "list-audit-events-result":
+        case "get-platform-stats-result":
         case "poll-remote-scan-result":
         case "get-sast-profiles-result":
         case "submit-sast-scan-result":
+        case "list-sast-scans-result":
         case "get-sast-scan-result":
         case "cancel-sast-scan-result":
+        case "retry-sast-scan-result":
         case "get-sast-scan-result-result":
         case "poll-sast-scan-result":
         case "import-remote-findings":
         case "error":
+        case "auth-login-result":
+        case "auth-register-result":
+        case "auth-verify-email-result":
+        case "auth-resend-code-result":
+        case "auth-forgot-password-result":
+        case "auth-verify-reset-otp-result":
+        case "auth-reset-password-result":
+        case "auth-list-api-keys-result":
+        case "auth-create-api-key-result":
+        case "auth-revoke-api-key-result":
+        case "auth-get-profile-result":
+        case "persistence-load-result":
+        case "update-notice":
           // Host -> webview only; a webview would never legitimately send
           // one of these back up, so there's nothing to dispatch.
           return;
+        case "update-install-request":
+        case "update-restart-request":
+        case "update-dismiss-request":
+          // Desktop-only in practice: the UpdateBanner only shows an
+          // Update/Restart button for "available"/"ready" notices, and this
+          // host never emits those (VS Code installs extension updates on
+          // its own -- see updateNotice.ts). Nothing to do if one somehow
+          // arrives anyway.
+          return;
+        case "persistence-load-request": {
+          const codefyDir = path.join(os.homedir(), ".codefy");
+
+          const blob: PersistenceBuckets = {
+            kv_store: {},
+            workspaces: {},
+            scan_sessions: {},
+            findings: {},
+            chat_history: {},
+          };
+
+          try {
+            if (fs.existsSync(codefyDir)) {
+              for (const store of PERSISTENCE_STORES) {
+                const storePath = path.join(codefyDir, `${store}.json`);
+                if (fs.existsSync(storePath)) {
+                  try {
+                    const data: unknown = JSON.parse(fs.readFileSync(storePath, "utf-8"));
+                    if (Array.isArray(data)) {
+                      for (const entry of data as unknown[]) {
+                        if (!isRecord(entry)) continue;
+                        const key = entry["id"] ?? entry["key"] ?? entry["path"] ?? entry["workspacePath"];
+                        if (typeof key === "string") {
+                          blob[store][key] = entry;
+                        }
+                      }
+                    } else if (isRecord(data)) {
+                      for (const [k, v] of Object.entries(data)) {
+                        blob[store][k] = v;
+                      }
+                    }
+                  } catch (e) {
+                    console.warn(`Failed to parse ${store}.json`, e);
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Failed to load .codefy data", e);
+          }
+
+          this.post({
+            type: "persistence-load-result",
+            data: blob,
+            requestId: message.requestId,
+          });
+
+          // persistence-load-request is the webview's own "I've mounted and
+          // am ready" signal (it fires this once on startup, before
+          // anything else) -- piggyback the pending update notice here
+          // rather than posting it straight from the constructor, which
+          // would race the webview's React tree mounting its bridge.on()
+          // listener. See WhoAmIPanel.ts / docs/RELEASE-PIPELINE.md Step 6.
+          if (this.pendingUpdateNotice) {
+            this.post({ type: "update-notice", notice: this.pendingUpdateNotice });
+            this.pendingUpdateNotice = null;
+          }
+          return;
+        }
+        case "auth-login-request": {
+          const session = await this.gatewayAuthClient.login(
+            message.email,
+            message.password,
+          );
+          this.post({ type: "auth-login-result", session, requestId: message.requestId });
+          return;
+        }
+        case "auth-register-request": {
+          const result = await this.gatewayAuthClient.register({
+            name: message.name,
+            email: message.email,
+            password: message.password,
+          });
+          this.post({
+            type: "auth-register-result",
+            status: result.status,
+            email: result.status === "pending_verification" ? result.email : message.email,
+            session: result.status === "authenticated" ? result.session : undefined,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-verify-email-request": {
+          const session = await this.gatewayAuthClient.verifyEmail(
+            message.email,
+            message.code,
+          );
+          this.post({ type: "auth-verify-email-result", session, requestId: message.requestId });
+          return;
+        }
+        case "auth-resend-code-request": {
+          await this.gatewayAuthClient.resendCode(message.email);
+          this.post({ type: "auth-resend-code-result", requestId: message.requestId });
+          return;
+        }
+        case "auth-forgot-password-request": {
+          await this.gatewayAuthClient.forgotPassword(message.email);
+          this.post({
+            type: "auth-forgot-password-result",
+            ok: true,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-verify-reset-otp-request": {
+          await this.gatewayAuthClient.verifyResetOtp(message.email, message.code);
+          this.post({
+            type: "auth-verify-reset-otp-result",
+            ok: true,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-reset-password-request": {
+          await this.gatewayAuthClient.resetPassword(
+            message.email,
+            message.code,
+            message.newPassword,
+          );
+          this.post({
+            type: "auth-reset-password-result",
+            ok: true,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-list-api-keys-request": {
+          const keys = await this.gatewayAuthClient.listApiKeys(message.token);
+          this.post({
+            type: "auth-list-api-keys-result",
+            keys,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-create-api-key-request": {
+          const key = await this.gatewayAuthClient.createApiKey(
+            message.token,
+            message.name,
+            message.expiresDays,
+          );
+          this.post({
+            type: "auth-create-api-key-result",
+            key,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-revoke-api-key-request": {
+          await this.gatewayAuthClient.revokeApiKey(message.token, message.keyId);
+          this.post({
+            type: "auth-revoke-api-key-result",
+            ok: true,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-get-profile-request": {
+          const profile = await this.gatewayAuthClient.getProfile(message.token);
+          const account: UserAccount = {
+            name: profile.name || "Developer",
+            email: profile.email,
+            tier:
+              profile.tier === "enterprise" || profile.tier === "pro"
+                ? profile.tier
+                : "community",
+            emailVerified: Boolean(profile.email_verified),
+          };
+          this.post({
+            type: "auth-get-profile-result",
+            profile: account,
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "persistence-save-request": {
+          // Fire-and-forget by design -- see the BridgeMessage docstring.
+          void this.context.globalState.update(PERSISTENCE_KEY, message.data);
+          const codefyDir = path.join(os.homedir(), ".codefy");
+          try {
+            if (!fs.existsSync(codefyDir)) {
+              fs.mkdirSync(codefyDir, { recursive: true });
+            }
+            if (isRecord(message.data)) {
+              const blob = message.data;
+              for (const store of PERSISTENCE_STORES) {
+                const bucket = blob[store];
+                if (isRecord(bucket)) {
+                  const items = Object.values(bucket);
+                  const storePath = path.join(codefyDir, `${store}.json`);
+                  fs.writeFileSync(storePath, JSON.stringify(items, null, 2), "utf-8");
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Failed to save .codefy data", e);
+          }
+          return;
+        }
         default: {
           const exhaustiveCheck: never = message;
           void exhaustiveCheck;
@@ -371,6 +584,7 @@ export class ExtensionBridge {
     const rootPath =
       explicitRootPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) {
+      this.engineHost.logDiagnostic("error", "Cannot scan: no workspace folder is open.");
       this.post({
         type: "error",
         message: "No workspace folder is open.",
@@ -380,6 +594,7 @@ export class ExtensionBridge {
     }
 
     const scanId = requestId ?? `scan-${Date.now()}`;
+    this.engineHost.logDiagnostic("info", `Bridge received scan request ${scanId}.`);
     // 10 minute ceiling -- a full workspace scan over many files can
     // legitimately take a while; scan-workspace-progress messages keep the
     // webview informed in the meantime.
@@ -412,6 +627,10 @@ export class ExtensionBridge {
         requestId,
       });
     } catch (error) {
+      this.engineHost.logDiagnostic(
+        "error",
+        `Scan request ${scanId} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+      );
       this.post({
         type: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -439,7 +658,8 @@ export class ExtensionBridge {
   private async handleGetWorkspaceGraph(
     requestId: string | undefined,
   ): Promise<void> {
-    const graph = await this.engineHost.getWorkspaceGraph();
+    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const graph = await this.engineHost.getWorkspaceGraph(rootPath);
     this.post({ type: "get-workspace-graph-result", graph, requestId });
   }
 
@@ -691,7 +911,7 @@ export class ExtensionBridge {
             {
               role: "sink",
               label: "remote-target",
-              filePath: "https://api.target.internal",
+              filePath: "https://scanme.nmap.org",
               line: 1,
             },
           ],
@@ -717,7 +937,7 @@ export class ExtensionBridge {
     const verified = true;
 
     if (finding.scope === "orchestrator" || finding.id.startsWith("remote-")) {
-      probeDetail = `[Remote PoC Verified] Target: ${sinkStep?.filePath || "https://api.target.internal"}. Security probe for '${finding.title}' returned confirmed vulnerability signature. Mitigation policy verified.`;
+      probeDetail = `[Remote PoC Verified] Target: ${sinkStep?.filePath || "https://scanme.nmap.org"}. Security probe for '${finding.title}' returned confirmed vulnerability signature. Mitigation policy verified.`;
     } else {
       switch (finding.ruleId) {
         case "js-command-injection-exec":
@@ -774,4 +994,3 @@ export class ExtensionBridge {
     void requestId; // jump-to-line has no result variant -- nothing to reply with.
   }
 }
-

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WhoAmI",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "com.whoami.desktop",
   "build": {
     "beforeDevCommand": "vite",
@@ -25,13 +25,22 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: asset: https://asset.localhost",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost"
+        "connect-src": "'self' ipc: http://ipc.localhost https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: asset: https://asset.localhost",
+        "worker-src": "'self' blob:",
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com"
       }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,5 +48,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5NjY1RDU5OTE0RkM5QQpSV1NhL0JTWjFXV1dEWldaZnBHcjJpb0R1MFpMOElNTEZzUzZNWnBxUVBsdThLTVhxeThHZ3ltUAo=",
+      "endpoints": [
+        "https://github.com/jayeshpandey01/codefy/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

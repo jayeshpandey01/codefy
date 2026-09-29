@@ -69,7 +69,7 @@ whoami-monorepo/
     └── desktop-app/            # Tauri v2 wrapper
                                 # - Mounts packages/ui in the frontend webview
                                 # - Runs packages/core (wasm build) in a Web Worker alongside packages/ui;
-                                #   Tauri's Rust side is used only for fs/dialog access, not for the engine
+                                #   Tauri's Rust side is used only for plugins (fs/dialog/updater/http), not for the engine
 ```
 
 **Key Principle:** Separation of concerns across boundaries:
@@ -161,7 +161,7 @@ pnpm --filter @whoami/core test -- --watch
 ### Platform Hosts (apps/vscode-extension, apps/desktop-app)
 
 - **VS Code Extension:** `packages/core` (napi build) runs directly in the extension host process — real Node.js, no Worker needed for the engine itself. `packages/ui` runs in a `WebviewPanel`; the two communicate over `vscode.postMessage`/`webview.postMessage`.
-- **Tauri Desktop:** `packages/core` (wasm build) runs inside a Web Worker in the frontend, alongside `packages/ui` in the same webview. Tauri's Rust side is used _only_ for what the webview genuinely can't do itself — reading files off disk, via the `dialog`/`fs` plugins called from the main thread — never for running the analysis engine itself. The Worker never touches Tauri's IPC bridge directly.
+- **Tauri Desktop:** `packages/core` (wasm build) runs inside a Web Worker in the frontend, alongside `packages/ui` in the same webview. Tauri's Rust side is used _only_ for what the webview genuinely can't do itself — reading files off disk via the `dialog`/`fs` plugins, checking/installing app updates via the `updater`/`process` plugins, and sending cloud-orchestrator requests via the `http` plugin (the orchestrator sends no CORS headers, so the webview's own `fetch` is blocked; the plugin's `fetch` is passed to `ScanOrchestratorClient` as its `fetchFn`, scoped to an allowlist in `capabilities/default.json`), all called from the main thread — never for running the analysis engine itself. The Worker never touches Tauri's IPC bridge directly. The updater's own request to the signed release endpoint (`docs/RELEASE-PIPELINE.md`) is the one outbound network call the desktop app makes automatically; orchestrator requests happen only when the user starts a cloud scan. Both run in Rust, not through the webview. See `docs/plans/desktop-backend-connection.md`.
 - **Shared bridge:** Both platforms implement the same `BridgeMessage` protocol (defined in `@whoami/types`) via a common `BridgeClient` interface that `packages/ui` consumes — no host-specific branching inside `packages/ui` itself.
 
 ---
@@ -302,6 +302,10 @@ Each skill file cross-references the others where the pipelines meet (e.g. taint
 For actual detection-rule content (sources/sinks/sanitizers per language, ast-grep rule YAML, the sanitizer-filter algorithm, PoC probe definitions) see [`docs/DETECTION-ENGINE-SPEC.md`](docs/DETECTION-ENGINE-SPEC.md) — the `taint-engine` skill covers _how_ to work in the pipeline, that doc holds the concrete _what_.
 
 For the natural-language chat panel feature (the Right Section in both app shells) — its Query AST, the deterministic intent grammar, and how a chat answer picks which of the 6 existing graph views to open — see [`docs/CHAT-QUERY-ENGINE-SPEC.md`](docs/CHAT-QUERY-ENGINE-SPEC.md). It also records exactly which parts of `chatbot_plan.md`'s broader vision (dependency/OSV intelligence, a GitHub Actions graph, PR diffing) are out of scope for this feature and why.
+
+For local persistence of session data (recent workspaces, scan/chat history, preferences) — why this is desktop-only work (the VS Code extension already gets this for free via `ExtensionContext.globalState`/`workspaceState`), the proposed SQLite schema, and the capability/permission implications of a currently read-only Tauri app writing to disk — see [`docs/LOCAL-PERSISTENCE-SPEC.md`](docs/LOCAL-PERSISTENCE-SPEC.md).
+
+For the CI/release pipeline (push → CI → Release PR → tag → Marketplace/Open VSX + signed desktop builds), the single version source of truth, and how each app tells the user about an update — see [`docs/RELEASE-PIPELINE.md`](docs/RELEASE-PIPELINE.md).
 
 ## Next Steps (Onboarding New Contributors)
 

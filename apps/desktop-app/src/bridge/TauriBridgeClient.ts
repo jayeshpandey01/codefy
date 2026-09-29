@@ -1,12 +1,23 @@
 import type { BridgeClient, BridgeMessageOfType } from "@whoami/ui";
-import type {
-  BridgeMessage,
-  BridgeMessageType,
-  Finding,
-  WorkspaceGraph,
+import {
+  type BridgeMessage,
+  type BridgeMessageType,
+  type Finding,
+  type WorkspaceGraph,
+  VercelError,
+  toStructuredError,
 } from "@whoami/types";
+import {
+  ScanOrchestratorClient,
+  handleOrchestratorMessage,
+  resolveOrchestratorUrl,
+} from "@whoami/core/query";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { getSettings } from "../db/preferencesRepo.js";
 import { pickAndReadWorkspace, pickWorkspaceFolder, readWorkspaceFromPath, type PickedWorkspace } from "./workspaceFs.js";
 import { scanFilesInWorker } from "./engineWorker.js";
+import { invoke } from "@tauri-apps/api/core";
+import { checkForAppUpdate, installPendingUpdate, restartApp, checkForVersionChange } from "./updater.js";
 
 type Handler = (message: BridgeMessage) => void;
 
@@ -45,6 +56,32 @@ export class TauriBridgeClient implements BridgeClient {
   /** Built once per scan, alongside it, in the Worker (see engine.worker.ts) —
    * answers get-workspace-graph-request from memory rather than re-scanning. */
   private lastWorkspaceGraph: WorkspaceGraph = { nodes: [], edges: [] };
+
+  private static readonly UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+  constructor() {
+    // Update checks are the one outbound network call this app makes on its
+    // own -- orchestrator calls happen only when the user starts a cloud
+    // scan (see src-tauri/capabilities/default.json's updated
+    // description and docs/RELEASE-PIPELINE.md) -- they run through the
+    // Tauri updater plugin's Rust side, never through this webview's fetch,
+    // so the CSP connect-src needs no change for this. A failed check (e.g.
+    // genuinely offline) is swallowed inside checkForAppUpdate/
+    // checkForVersionChange rather than surfaced as an error notice -- an
+    // offline launch should be silent, not alarming.
+    void this.runStartupUpdateChecks();
+    setInterval(() => {
+      void checkForAppUpdate((notice) => this.emit({ type: "update-notice", notice }));
+    }, TauriBridgeClient.UPDATE_CHECK_INTERVAL_MS);
+  }
+
+  private async runStartupUpdateChecks(): Promise<void> {
+    const updatedNotice = await checkForVersionChange();
+    if (updatedNotice) {
+      this.emit({ type: "update-notice", notice: updatedNotice });
+    }
+    await checkForAppUpdate((notice) => this.emit({ type: "update-notice", notice }));
+  }
 
   send(message: BridgeMessage): void {
     void this.handle(message);
@@ -88,7 +125,11 @@ export class TauriBridgeClient implements BridgeClient {
       const handler: Handler = (incoming) => {
         if (incoming.requestId !== requestId) return;
         cleanup();
-        resolve(incoming as TRes);
+        if (incoming.type === "error") {
+          reject(new Error(incoming.message));
+        } else {
+          resolve(incoming as TRes);
+        }
       };
 
       const timer = setTimeout(() => {
@@ -114,7 +155,56 @@ export class TauriBridgeClient implements BridgeClient {
     for (const handler of [...this.anyHandlers]) handler(message);
   }
 
+  /**
+   * Built fresh per orchestrator request (as VS Code's extensionBridge does),
+   * so a URL or key changed in Settings applies on the next call with no
+   * invalidation plumbing. Requests go through the http plugin's fetch, i.e.
+   * from Rust: the orchestrator sends no CORS headers, so the webview's own
+   * fetch would be blocked. Allowed hosts: capabilities/default.json.
+   */
+  private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
+    const settings = await getSettings();
+    const resolved = resolveOrchestratorUrl({
+      userSetting: settings.orchestratorUrl,
+      buildTime: import.meta.env.VITE_ORCHESTRATOR_URL,
+    });
+    if (!resolved.ok) {
+      throw new VercelError(resolved.reason, {
+        code: "orchestrator_url_not_allowed",
+        scope: "orchestrator",
+        hint: "Change the orchestrator URL in Settings, or clear it to use the default.",
+      });
+    }
+    return new ScanOrchestratorClient({
+      baseUrl: resolved.url,
+      apiKey: settings.operatorApiKey || undefined,
+      adminApiKey: settings.adminApiKey || undefined,
+      fetchFn: tauriFetch as typeof fetch,
+    });
+  }
+
+  private emitError(requestId: string | undefined, err: unknown, fallbackScope: string): void {
+    this.emit({ type: "error", requestId, ...toStructuredError(err, fallbackScope) });
+  }
+
   private async handle(message: BridgeMessage): Promise<void> {
+    // Cloud orchestrator requests: shared with the VS Code extension host
+    // (packages/core/src/orchestrator/bridge-router.ts).
+    try {
+      if (
+        await handleOrchestratorMessage(
+          () => this.createOrchestratorClient(),
+          message,
+          (reply) => this.emit(reply),
+        )
+      ) {
+        return;
+      }
+    } catch (err) {
+      this.emitError(message.requestId, err, "orchestrator");
+      return;
+    }
+
     switch (message.type) {
       case "pick-folder-request": {
         try {
@@ -157,10 +247,12 @@ export class TauriBridgeClient implements BridgeClient {
         return;
       }
 
-      // The desktop app is deliberately a read-only, offline tool -- no
-      // fs write permission and no shell/http permissions are granted in
-      // src-tauri/capabilities/default.json. apply-fix and run-poc are
-      // answered honestly as unavailable rather than silently no-opping.
+      // No fs write or shell permission is granted in
+      // src-tauri/capabilities/default.json (the http plugin is scoped to
+      // the orchestrator only), and there is no local probe runner.
+      // apply-fix and run-poc are answered honestly as unavailable rather
+      // than silently no-opping -- or, worse, reporting a probe as verified
+      // without running one.
       case "apply-fix-request":
         this.emit({
           type: "apply-fix-result",
@@ -182,8 +274,8 @@ export class TauriBridgeClient implements BridgeClient {
           requestId: message.requestId,
           verified: false,
           detail:
-            "PoC runtime verification is not available in the desktop app: it has no shell/http " +
-            "permissions (offline, read-only tool).",
+            "PoC runtime verification is not available in the desktop app: it has no local " +
+            "probe runner.",
         });
         return;
 
@@ -193,6 +285,22 @@ export class TauriBridgeClient implements BridgeClient {
           requestId: message.requestId,
           graph: this.lastWorkspaceGraph,
         });
+        return;
+
+      case "update-install-request":
+        await installPendingUpdate((notice) => this.emit({ type: "update-notice", notice }));
+        return;
+
+      case "update-restart-request":
+        await restartApp();
+        return;
+
+      case "update-dismiss-request":
+        // Purely a UI-side dismissal (UpdateBanner hides itself); nothing
+        // persists host-side about a dismissed "available"/"ready" notice --
+        // the next check() call (interval or next launch) will re-announce
+        // it if it's still the latest version, same as VS Code re-showing an
+        // extension update if you never install it.
         return;
 
       case "jump-to-line":
@@ -207,7 +315,21 @@ export class TauriBridgeClient implements BridgeClient {
       // scan-workspace-progress / scan-workspace-result / get-trace-result /
       // apply-fix-result / run-poc-result / error are host->UI-only in this
       // app's flow -- nothing to do if the UI itself sends one.
+      //
+      // Everything else that reaches here is a *-request this class has no
+      // case for. Orchestrator requests never get here (dispatched above);
+      // in practice this is the auth-* family, which App.tsx sends straight
+      // to the AI gateway itself, and persistence-*, which this app keeps in
+      // IndexedDB. Answer immediately rather than let request() hang until
+      // its timeout with no explanation.
       default:
+        if (message.type.endsWith("-request")) {
+          this.emit({
+            type: "error",
+            requestId: message.requestId,
+            message: `"${message.type}" is not handled by the desktop app's bridge.`,
+          });
+        }
         return;
     }
   }
@@ -216,7 +338,18 @@ export class TauriBridgeClient implements BridgeClient {
     requestId: string | undefined,
     folderPath?: string,
   ): Promise<void> {
+    const scanStartedAt = Date.now();
+    const scanLog = (level: "info" | "warn" | "error", message: string): void => {
+      const requestLabel = requestId ?? "no-request-id";
+      void invoke("log_scan_diagnostic", {
+        level,
+        message: `[request=${requestLabel}] ${message}`,
+      }).catch((err: unknown) => {
+        console.warn("[WhoAmI] Could not forward scan diagnostics to terminal:", err);
+      });
+    };
     try {
+      scanLog("info", `Scan requested${folderPath ? ` for ${folderPath}` : " (folder picker)"}.`);
       let picked: PickedWorkspace | null = null;
       if (folderPath && folderPath.trim()) {
         const trimmed = folderPath.trim();
@@ -227,6 +360,7 @@ export class TauriBridgeClient implements BridgeClient {
         }
 
         if (!picked || picked.files.length === 0) {
+          scanLog("error", `No scannable files loaded from ${trimmed}.`);
           this.emit({
             type: "error",
             requestId,
@@ -239,6 +373,7 @@ export class TauriBridgeClient implements BridgeClient {
       }
 
       if (!picked) {
+        scanLog("warn", "Scan cancelled or folder selection returned no workspace.");
         this.emit({
           type: "error",
           requestId,
@@ -247,7 +382,10 @@ export class TauriBridgeClient implements BridgeClient {
         return;
       }
 
+      scanLog("info", `Workspace loaded: ${picked.files.length} file(s) from ${picked.rootPath}; starting analysis Worker.`);
+
       const result = await scanFilesInWorker(picked.files, picked.rootPath, {
+        onDiagnostic: scanLog,
         onProgress: (scanned, total) => {
           this.emit({
             type: "scan-workspace-progress",
@@ -257,6 +395,7 @@ export class TauriBridgeClient implements BridgeClient {
           });
         },
       });
+      scanLog("info", `Scan complete in ${Math.round((Date.now() - scanStartedAt) / 1000)}s: findings=${result.findings.length}, secrets=${result.secrets.length}.`);
 
       // SecretFinding results have no BridgeMessage of their own yet (see
       // packages/types/src/bridge.ts) -- scan-workspace-result only carries
@@ -283,6 +422,7 @@ export class TauriBridgeClient implements BridgeClient {
         findings: result.findings,
       });
     } catch (err) {
+      scanLog("error", `Scan failed after ${Math.round((Date.now() - scanStartedAt) / 1000)}s: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
       this.emit({
         type: "error",
         requestId,

@@ -7,6 +7,8 @@ import {
   buildControlFlowGraph,
   buildSupplyChainGraph,
   buildRemoteAttackSurfaceGraph,
+  isTestFilePath,
+  filterWorkspaceGraphTestFiles,
 } from "../visualization/graph-transformers.js";
 
 const FIXTURE_FINDINGS: Finding[] = [
@@ -73,6 +75,69 @@ const FIXTURE_FINDINGS: Finding[] = [
           label: "exec(cmd)",
           filePath: "src/cmd.ts",
           line: 80,
+        },
+      ],
+    },
+  },
+];
+
+const FIXTURE_REMOTE_FINDINGS: Finding[] = [
+  {
+    id: "remote-job1-1",
+    ruleId: "remote-sqli",
+    status: "confirmed",
+    severity: "critical",
+    title: "SQL Injection in /api/v1/users",
+    description: "Union based SQLi detected",
+    scope: "endpoint",
+    createdAt: "2026-09-01T00:00:00Z",
+    trace: {
+      sinkClass: "sql-injection",
+      steps: [
+        {
+          role: "source",
+          label: "Target Scope: scanme.nmap.org",
+          filePath: "https://scanme.nmap.org/api/v1/users",
+          line: 1,
+        },
+        {
+          role: "sanitizer",
+          label: "Scanner Probe: sqlmap test",
+          filePath: "https://scanme.nmap.org/api/v1/users",
+          line: 1,
+        },
+        {
+          role: "sink",
+          label: "Vulnerable Endpoint: https://scanme.nmap.org/api/v1/users",
+          filePath: "https://scanme.nmap.org/api/v1/users",
+          line: 1,
+        },
+      ],
+    },
+  },
+  {
+    id: "remote-job1-2",
+    ruleId: "remote-open-port",
+    status: "confirmed",
+    severity: "low",
+    title: "Open Port: 80/tcp",
+    description: "HTTP service active",
+    scope: "endpoint",
+    createdAt: "2026-09-01T00:00:00Z",
+    trace: {
+      sinkClass: "ssrf",
+      steps: [
+        {
+          role: "source",
+          label: "Target Scope: scanme.nmap.org",
+          filePath: "scanme.nmap.org:80",
+          line: 1,
+        },
+        {
+          role: "sink",
+          label: "Discovered Port: 80",
+          filePath: "scanme.nmap.org:80",
+          line: 1,
         },
       ],
     },
@@ -207,27 +272,106 @@ describe("buildSupplyChainGraph", () => {
 });
 
 describe("buildRemoteAttackSurfaceGraph", () => {
-  it("constructs dynamic host recon topology with exposed endpoints and probes", () => {
-    const result = buildRemoteAttackSurfaceGraph(FIXTURE_FINDINGS, "api.target.internal");
+  it("returns empty nodes and edges when findings are undefined, empty, or only local SAST findings", () => {
+    expect(buildRemoteAttackSurfaceGraph()).toEqual({ nodes: [], edges: [] });
+    expect(buildRemoteAttackSurfaceGraph([])).toEqual({ nodes: [], edges: [] });
+    // Local SAST findings should not produce any remote attack surface nodes
+    expect(buildRemoteAttackSurfaceGraph(FIXTURE_FINDINGS)).toEqual({
+      nodes: [],
+      edges: [],
+    });
+  });
 
-    const hostNode = result.nodes.find((n) => n.id === "host:api.target.internal");
+  it("constructs dynamic host recon topology with exposed endpoints and probes when remote DAST findings exist", () => {
+    const result = buildRemoteAttackSurfaceGraph(
+      FIXTURE_REMOTE_FINDINGS,
+      "scanme.nmap.org",
+    );
+
+    const hostNode = result.nodes.find((n) => n.id === "host:scanme.nmap.org");
     expect(hostNode).toBeDefined();
+    expect(hostNode?.label).toBe("scanme.nmap.org");
 
     const endpointNodes = result.nodes.filter((n) => n.role === "endpoint");
     expect(endpointNodes.length).toBeGreaterThan(0);
+    expect(endpointNodes).toHaveLength(2);
+    expect(endpointNodes.some((e) => e.label === "GET /api/v1/users")).toBe(true);
+    expect(endpointNodes.some((e) => e.label === "TCP :80")).toBe(true);
 
     const probeNodes = result.nodes.filter((n) => n.role === "probe");
     expect(probeNodes.length).toBeGreaterThan(0);
+    expect(probeNodes).toHaveLength(2);
+    expect(probeNodes.some((p) => p.label.includes("SQL Injection"))).toBe(true);
+    expect(probeNodes.some((p) => p.label.includes("Open Port"))).toBe(true);
+
+    // Edges
+    const routeEdges = result.edges.filter((e) => e.label === "routes to");
+    expect(routeEdges).toHaveLength(2);
+
+    const probeEdges = result.edges.filter((e) => e.label === "probes");
+    expect(probeEdges).toHaveLength(2);
+  });
+  it("filters to vulnerable endpoints only in bugs pipelineMode", () => {
+    const bugsResult = buildRemoteAttackSurfaceGraph(
+      FIXTURE_REMOTE_FINDINGS,
+      "scanme.nmap.org",
+      { pipelineMode: "bugs" },
+    );
+    const fullResult = buildRemoteAttackSurfaceGraph(
+      FIXTURE_REMOTE_FINDINGS,
+      "scanme.nmap.org",
+      { pipelineMode: "full" },
+    );
+
+    // bugs mode excludes the low-severity open port finding
+    expect(bugsResult.nodes.length).toBeLessThan(fullResult.nodes.length);
+    expect(bugsResult.nodes.some((n) => n.label === "TCP :80")).toBe(false);
+    expect(bugsResult.nodes.some((n) => n.label === "GET /api/v1/users")).toBe(true);
+  });
+});
+
+describe("isTestFilePath", () => {
+  it("recognizes common test directory and filename conventions", () => {
+    expect(isTestFilePath("src/__tests__/foo.test.ts")).toBe(true);
+    expect(isTestFilePath("src/components/foo.test.tsx")).toBe(true);
+    expect(isTestFilePath("src/components/foo.spec.ts")).toBe(true);
+    expect(isTestFilePath("tests/unit/test_widget.py")).toBe(true);
+    expect(isTestFilePath("app/widget_test.go")).toBe(true);
+    expect(isTestFilePath("test/fixtures/sample.py")).toBe(true);
   });
 
-  it("filters to vulnerable endpoints only in bugs pipelineMode", () => {
-    const bugsResult = buildRemoteAttackSurfaceGraph(FIXTURE_FINDINGS, "api.target.internal", {
-      pipelineMode: "bugs",
-    });
-    const fullResult = buildRemoteAttackSurfaceGraph(FIXTURE_FINDINGS, "api.target.internal", {
-      pipelineMode: "full",
-    });
+  it("does not flag ordinary application files", () => {
+    expect(isTestFilePath("src/components/Widget.tsx")).toBe(false);
+    expect(isTestFilePath("src/api/latest_test_results.ts")).toBe(false);
+    expect(isTestFilePath("src/utils/contest.ts")).toBe(false);
+  });
+});
 
-    expect(bugsResult.nodes.length).toBeLessThan(fullResult.nodes.length);
+describe("filterWorkspaceGraphTestFiles", () => {
+  const graph: WorkspaceGraph = {
+    nodes: [
+      { id: "n1", label: "app.ts", type: "file", filePath: "src/app.ts" },
+      { id: "n2", label: "app.test.ts", type: "file", filePath: "src/__tests__/app.test.ts" },
+      { id: "n3", label: "utils.ts", type: "file", filePath: "src/utils.ts" },
+    ],
+    edges: [
+      { id: "e1", source: "n1", target: "n2", type: "imports" },
+      { id: "e2", source: "n1", target: "n3", type: "imports" },
+    ],
+  };
+
+  it("removes test-file nodes and any edges touching them when hideTests is true", () => {
+    const result = filterWorkspaceGraphTestFiles(graph, true);
+    expect(result?.nodes.map((n) => n.id)).toEqual(["n1", "n3"]);
+    expect(result?.edges.map((e) => e.id)).toEqual(["e2"]);
+  });
+
+  it("returns the graph unmodified when hideTests is false", () => {
+    const result = filterWorkspaceGraphTestFiles(graph, false);
+    expect(result).toBe(graph);
+  });
+
+  it("passes through undefined gracefully", () => {
+    expect(filterWorkspaceGraphTestFiles(undefined, true)).toBeUndefined();
   });
 });

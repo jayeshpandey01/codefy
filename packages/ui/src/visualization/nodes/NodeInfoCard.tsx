@@ -15,24 +15,24 @@ export interface NodeInfoCardProps {
 }
 
 const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-[#F14C4C] shadow-[0_0_8px_rgba(241,76,76,0.8)]",
-  high: "bg-[#F14C4C] shadow-[0_0_6px_rgba(241,76,76,0.6)]",
-  medium: "bg-[#CCA700] shadow-[0_0_6px_rgba(204,167,0,0.6)]",
-  low: "bg-[#89D185] shadow-[0_0_6px_rgba(137,209,133,0.6)]",
-  info: "bg-[#75BEFF] shadow-[0_0_6px_rgba(117,190,255,0.6)]",
+  critical: "bg-severity-critical shadow-[0_0_8px_rgba(241,76,76,0.8)]",
+  high: "bg-severity-critical shadow-[0_0_6px_rgba(241,76,76,0.6)]",
+  medium: "bg-severity-high shadow-[0_0_6px_rgba(204,167,0,0.6)]",
+  low: "bg-severity-low shadow-[0_0_6px_rgba(137,209,133,0.6)]",
+  info: "bg-severity-medium shadow-[0_0_6px_rgba(117,190,255,0.6)]",
 };
 
 const DEFAULT_DOT_BY_TYPE: Record<string, string> = {
-  source: "bg-[#75BEFF]",
-  sink: "bg-[#F14C4C]",
-  sanitizer: "bg-[#89D185]",
-  passthrough: "bg-[#858585]",
+  source: "bg-severity-medium",
+  sink: "bg-severity-critical",
+  sanitizer: "bg-severity-low",
+  passthrough: "bg-vscode-muted",
   decision: "bg-[#FFD700]",
-  asset: "bg-[#CCA700]",
+  asset: "bg-severity-high",
   package: "bg-[#4EC9B0]",
-  endpoint: "bg-[#75BEFF]",
-  probe: "bg-[#F14C4C]",
-  safe_exit: "bg-[#89D185]",
+  endpoint: "bg-severity-medium",
+  probe: "bg-severity-critical",
+  safe_exit: "bg-severity-low",
 };
 
 function getSubtitle(role?: string, type?: string, desc?: string): string {
@@ -96,7 +96,7 @@ export function NodeInfoCard({
   const dotClass =
     SEVERITY_DOT[severity] ||
     DEFAULT_DOT_BY_TYPE[role] ||
-    "bg-[#858585]";
+    "bg-vscode-muted";
 
   const label = String(data.label || fileBasename || "Node");
   const description =
@@ -129,11 +129,11 @@ export function NodeInfoCard({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="w-[290px] max-w-[310px] rounded-lg border border-[#3C3C3C] bg-[#18181A] p-3 text-[#D4D4D4] shadow-2xl backdrop-blur-md font-sans text-left z-50 select-none animate-in fade-in zoom-in-95 duration-100"
+      className="w-[290px] max-w-[310px] rounded-lg border border-vscode-border bg-vscode-card p-3 text-vscode-fg shadow-2xl backdrop-blur-md font-sans text-left z-50 select-none animate-in fade-in zoom-in-95 duration-100"
     >
       {/* Top Header: Title / Filename + Status Dot + Close button if selected */}
       <div className="flex items-start justify-between gap-2">
-        <div className="text-xs font-bold text-white font-mono truncate max-w-[230px]" title={label}>
+        <div className="text-xs font-bold text-vscode-fg font-mono truncate max-w-[230px]" title={label}>
           {fileBasename || label}
         </div>
         <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
@@ -146,7 +146,7 @@ export function NodeInfoCard({
                 onClose();
               }}
               title="Close"
-              className="p-0.5 text-[#858585] hover:text-white hover:bg-[#2A2D2E] rounded transition-colors cursor-pointer"
+              className="p-0.5 text-vscode-muted hover:text-vscode-fg hover:bg-vscode-card-hover rounded transition-colors cursor-pointer"
             >
               <XIcon size={10} />
             </button>
@@ -155,7 +155,7 @@ export function NodeInfoCard({
       </div>
 
       {/* Subtitle / Context (italic) */}
-      <div className="text-[10px] text-[#858585] italic mt-0.5 leading-tight truncate" title={subtitle}>
+      <div className="text-[10px] text-vscode-muted italic mt-0.5 leading-tight truncate" title={subtitle}>
         {subtitle}
       </div>
 
@@ -165,12 +165,12 @@ export function NodeInfoCard({
           <span
             className={`inline-block rounded-full border px-2 py-0.5 text-[9px] font-mono font-medium ${
               severity === "critical" || severity === "high" || role === "sink" || role === "probe"
-                ? "border-[#F14C4C]/60 bg-[#5A1D1D]/30 text-[#F14C4C]"
+                ? "border-severity-critical/60 bg-[#5A1D1D]/30 text-severity-critical"
                 : severity === "medium" || role === "decision"
-                  ? "border-[#CCA700]/60 bg-[#382F00]/30 text-[#CCA700]"
+                  ? "border-severity-high/60 bg-severity-high-bg/30 text-severity-high"
                   : severity === "low" || role === "sanitizer"
-                    ? "border-[#4EC9B0]/60 bg-[#09352F]/30 text-[#89D185]"
-                    : "border-[#007ACC]/50 bg-[#04395E]/30 text-[#75BEFF]"
+                    ? "border-[#4EC9B0]/60 bg-[#09352F]/30 text-severity-low"
+                    : "border-vscode-focus/50 bg-vscode-card-selected/30 text-severity-medium"
             }`}
           >
             {tag}
@@ -183,30 +183,30 @@ export function NodeInfoCard({
         <span
           className={`w-1.5 h-1.5 rounded-[1px] shrink-0 mt-1 ${
             severity === "critical" || severity === "high" || role === "sink" || role === "probe"
-              ? "bg-[#F14C4C]"
+              ? "bg-severity-critical"
               : severity === "medium" || role === "decision"
-                ? "bg-[#CCA700]"
+                ? "bg-severity-high"
                 : severity === "low" || role === "sanitizer"
-                  ? "bg-[#89D185]"
-                  : "bg-[#75BEFF]"
+                  ? "bg-severity-low"
+                  : "bg-severity-medium"
           }`}
         />
-        <span className="text-[#CCCCCC] line-clamp-3">
-          <strong className="text-white font-semibold">{sourceTag} · </strong>
+        <span className="text-vscode-fg line-clamp-3">
+          <strong className="text-vscode-fg font-semibold">{sourceTag} · </strong>
           {description || label}
         </span>
       </div>
 
       {/* Remediation / Guidance Paragraph */}
       {remediation && (
-        <div className="mt-2 border-t border-[#2A2A2E] pt-1.5 text-[10px] text-[#858585] leading-relaxed line-clamp-3">
+        <div className="mt-2 border-t border-vscode-card-hover pt-1.5 text-[10px] text-vscode-muted leading-relaxed line-clamp-3">
           {remediation}
         </div>
       )}
 
       {/* Sinks Action Buttons (PoC / Fix) if provided */}
       {(data.onRunPoc || data.onApplyFix) && (
-        <div className="mt-2 flex items-center gap-1.5 border-t border-[#2A2A2E] pt-2">
+        <div className="mt-2 flex items-center gap-1.5 border-t border-vscode-card-hover pt-2">
           {data.onRunPoc && (
             <button
               type="button"
@@ -214,7 +214,7 @@ export function NodeInfoCard({
                 e.stopPropagation();
                 data.onRunPoc?.();
               }}
-              className="flex flex-1 items-center justify-center gap-1 rounded bg-[#16301A] border border-[#4EC9B0]/40 px-2 py-1 text-[10px] font-semibold text-[#89D185] hover:bg-[#1E3B20] transition-colors cursor-pointer"
+              className="flex flex-1 items-center justify-center gap-1 rounded bg-[#16301A] border border-[#4EC9B0]/40 px-2 py-1 text-[10px] font-semibold text-severity-low hover:bg-[#1E3B20] transition-colors cursor-pointer"
             >
               <PlayIcon size={10} />
               <span>Verify PoC</span>
@@ -227,7 +227,7 @@ export function NodeInfoCard({
                 e.stopPropagation();
                 data.onApplyFix?.();
               }}
-              className="flex flex-1 items-center justify-center gap-1 rounded bg-[#094771] border border-[#007ACC]/40 px-2 py-1 text-[10px] font-semibold text-white hover:bg-[#1177BB] transition-colors cursor-pointer"
+              className="flex flex-1 items-center justify-center gap-1 rounded bg-vscode-focus border border-vscode-focus/40 px-2 py-1 text-[10px] font-semibold text-white hover:bg-vscode-primary-hover transition-colors cursor-pointer"
             >
               <SparklesIcon size={10} />
               <span>Apply Fix</span>
@@ -238,7 +238,7 @@ export function NodeInfoCard({
 
       {/* Footer with File link & Open File Button */}
       {data.filePath && (
-        <div className="mt-2.5 flex items-center justify-between border-t border-[#2A2A2E] pt-2 text-[10px] font-mono text-[#858585]">
+        <div className="mt-2.5 flex items-center justify-between border-t border-vscode-card-hover pt-2 text-[10px] font-mono text-vscode-muted">
           <span className="truncate max-w-[170px]" title={`${data.filePath}:${data.line || 1}`}>
             {fileBasename}:{data.line || 1}
           </span>
@@ -249,7 +249,7 @@ export function NodeInfoCard({
                 e.stopPropagation();
                 data.onJumpToLine?.(data.filePath, data.line || 1);
               }}
-              className="flex items-center gap-1 rounded border border-[#007ACC]/50 bg-[#04395E]/60 hover:bg-[#04395E] px-2 py-0.5 text-[10px] font-medium text-[#75BEFF] hover:text-white transition-all cursor-pointer"
+              className="flex items-center gap-1 rounded border border-vscode-focus/50 bg-vscode-card-selected/60 hover:bg-vscode-card-selected px-2 py-0.5 text-[10px] font-medium text-severity-medium hover:text-vscode-fg transition-all cursor-pointer"
             >
               <ExternalLinkIcon size={10} />
               <span>Open File</span>

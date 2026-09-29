@@ -1,4 +1,4 @@
-import Parser from "web-tree-sitter";
+import Parser from "web-tree-sitter-legacy";
 
 import { loadLanguage, type SupportedLanguageId } from "./wasm-loader.js";
 

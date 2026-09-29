@@ -13,6 +13,25 @@ import {
 // the browser, in the VS Code webview, and under Vitest/jsdom.
 const elk = new ELK();
 
+// Layout cache to prevent re-computing identical graphs across tab switches and component re-mounts
+const LAYOUT_CACHE_MAX = 20;
+const layoutCache = new Map<string, PositionedGraph>();
+
+function getLayoutCacheKey(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+  direction: string,
+): string {
+  const nodeCount = nodes.length;
+  const edgeCount = edges.length;
+  if (nodeCount === 0) return `empty:${direction}`;
+  const firstNode = nodes[0]?.id ?? "";
+  const lastNode = nodes[nodeCount - 1]?.id ?? "";
+  const firstEdge = edges[0]?.id ?? "";
+  const lastEdge = edges[edgeCount - 1]?.id ?? "";
+  return `${nodeCount}:${edgeCount}:${firstNode}:${lastNode}:${firstEdge}:${lastEdge}:${direction}`;
+}
+
 export interface PositionedNode {
   readonly id: string;
   readonly x: number;
@@ -25,6 +44,16 @@ export interface PositionedNode {
 export interface PositionedGraph {
   readonly nodes: readonly PositionedNode[];
   readonly edges: readonly GraphEdge[];
+}
+
+interface ElkChildNode {
+  id: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  children?: ElkChildNode[];
+  layoutOptions?: Record<string, string>;
 }
 
 function getNodeDimensions(node: GraphNode): { width: number; height: number } {
@@ -42,6 +71,7 @@ function getNodeDimensions(node: GraphNode): { width: number; height: number } {
  * Pure function: GraphNode[]/GraphEdge[] in, computed {x,y} positions out.
  * Supports both flat DAGs and compound subflows (nodes with parentId).
  * Child positions are output relative to their parent container, matching xyflow coordinates.
+ * Memoized with an LRU cache for 0ms layout retrieval on unchanged graphs.
  */
 export async function layoutGraph(
   nodes: readonly GraphNode[],
@@ -50,6 +80,12 @@ export async function layoutGraph(
 ): Promise<PositionedGraph> {
   if (nodes.length === 0) {
     return { nodes: [], edges };
+  }
+
+  const cacheKey = getLayoutCacheKey(nodes, edges, direction);
+  const cached = layoutCache.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
   // Detect whether we have compound parent-child relationships
@@ -78,7 +114,7 @@ export async function layoutGraph(
 
   const hasCompoundGroups = childrenByParent.size > 0;
 
-  let elkChildren: any[];
+  let elkChildren: ElkChildNode[];
 
   if (hasCompoundGroups) {
     elkChildren = rootNodes.map((node) => {
@@ -138,7 +174,7 @@ export async function layoutGraph(
 
   const positioned: PositionedNode[] = [];
 
-  function collectPositioned(children: any[], parentId?: string) {
+  function collectPositioned(children: ElkChildNode[], parentId?: string) {
     for (const child of children) {
       positioned.push({
         id: child.id,
@@ -157,5 +193,12 @@ export async function layoutGraph(
 
   collectPositioned(result.children ?? []);
 
-  return { nodes: positioned, edges };
+  const output: PositionedGraph = { nodes: positioned, edges };
+  if (layoutCache.size >= LAYOUT_CACHE_MAX) {
+    const firstKey = layoutCache.keys().next().value;
+    if (firstKey) layoutCache.delete(firstKey);
+  }
+  layoutCache.set(cacheKey, output);
+
+  return output;
 }

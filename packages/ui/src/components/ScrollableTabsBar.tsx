@@ -49,6 +49,7 @@ export function ScrollableTabsBar({
   const [isDragging, setIsDragging] = useState(false);
 
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   const updateScrollState = useCallback(() => {
     const el = containerRef.current;
@@ -80,19 +81,69 @@ export function ScrollableTabsBar({
     return () => window.removeEventListener("resize", handleResize);
   }, [tabs, updateScrollState]);
 
-  // Auto-scroll active tab into view when activeTab changes
+  // Clean up RAF and scroll timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      if (scrollTimeoutRef.current !== null) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Smoothly scroll active tab into view horizontally without moving parent containers
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const activeEl = el.querySelector<HTMLElement>(`[data-tab-id="${activeTab}"]`);
-    if (activeEl && typeof activeEl.scrollIntoView === "function") {
-      activeEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    if (!activeEl) return;
+
+    const elLeft = activeEl.offsetLeft;
+    const elWidth = activeEl.offsetWidth;
+    const scrollLeft = el.scrollLeft;
+    const clientWidth = el.clientWidth;
+
+    if (elLeft < scrollLeft) {
+      el.scrollTo({ left: elLeft, behavior: "smooth" });
+    } else if (elLeft + elWidth > scrollLeft + clientWidth) {
+      el.scrollTo({ left: elLeft + elWidth - clientWidth, behavior: "smooth" });
     }
   }, [activeTab]);
 
+  // Native non-passive wheel listener for smooth horizontal scroll translation
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      // If predominantly vertical scrolling (e.g. mouse wheel), translate to horizontal scroll
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        if (e.deltaY !== 0) {
+          if (e.cancelable) {
+            e.preventDefault();
+          }
+          el.scrollLeft += e.deltaY;
+        }
+      }
+      // If predominantly horizontal (trackpad swipe), native scroll handles it smoothly
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, []);
+
   const handleScroll = () => {
-    updateScrollState();
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(() => {
+        updateScrollState();
+        rafRef.current = null;
+      });
+    }
     setIsScrolling(true);
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
@@ -100,12 +151,6 @@ export function ScrollableTabsBar({
     scrollTimeoutRef.current = setTimeout(() => {
       setIsScrolling(false);
     }, 1200);
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.deltaY !== 0 && containerRef.current) {
-      containerRef.current.scrollLeft += e.deltaY;
-    }
   };
 
   const handleAuxClick = (tabId: string, e: React.MouseEvent) => {
@@ -171,22 +216,21 @@ export function ScrollableTabsBar({
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`relative flex items-center justify-between border-b border-[#303031] bg-[#181818] px-2 pt-1 shrink-0 z-10 ${className}`}
+      className={`relative flex items-center justify-between border-b border-vscode-border bg-vscode-header px-2 pt-1 shrink-0 z-10 ${className}`}
     >
       {/* Left overflow shadow matching VS Code */}
       {showLeftShadow && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#181818] via-[#181818]/70 to-transparent z-20 transition-opacity duration-200"
+          className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-vscode-header via-vscode-header/70 to-transparent z-20 transition-opacity duration-200"
         />
       )}
 
-      {/* Tabs scrollable container (native scrollbars hidden) */}
+      {/* Tabs scrollable container (native scrollbars hidden, smooth scroll without animation lockups) */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        onWheel={handleWheel}
-        className="flex items-center gap-1 overflow-x-auto scrollbar-none scroll-smooth pb-0.5 w-full select-none"
+        className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-0.5 w-full select-none"
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -198,10 +242,10 @@ export function ScrollableTabsBar({
               onClick={() => onSelectTab(tab.id)}
               onAuxClick={(e) => handleAuxClick(tab.id, e)}
               title={`${tab.label} (middle click to close)`}
-              className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider rounded-t transition-all cursor-pointer border-t-2 select-none shrink-0 ${
+              className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider rounded-t transition-colors cursor-pointer border-t-2 select-none shrink-0 ${
                 isActive
-                  ? "bg-[#1E1E1E] text-white border-[#007ACC] border-x border-[#303031] shadow-sm font-semibold"
-                  : "bg-[#252526]/50 text-[#969696] border-transparent hover:text-[#D4D4D4] hover:bg-[#252526]"
+                  ? "bg-vscode-bg text-vscode-fg border-vscode-focus border-x border-vscode-border shadow-sm font-semibold"
+                  : "bg-vscode-card/50 text-vscode-muted border-transparent hover:text-vscode-fg hover:bg-vscode-card"
               }`}
             >
               {tab.icon}
@@ -213,7 +257,7 @@ export function ScrollableTabsBar({
                   onCloseTab(tab.id, e);
                 }}
                 title={`Close ${tab.label}`}
-                className="rounded p-0.5 text-[#858585] hover:text-white hover:bg-[#3A3D41] transition-colors cursor-pointer ml-0.5"
+                className="rounded p-0.5 text-vscode-muted hover:text-vscode-fg hover:bg-vscode-btn-secondary transition-colors cursor-pointer ml-0.5"
               >
                 <XIcon size={11} />
               </button>
@@ -226,7 +270,7 @@ export function ScrollableTabsBar({
       {showRightShadow && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#181818] via-[#181818]/70 to-transparent z-20 transition-opacity duration-200"
+          className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-vscode-header via-vscode-header/70 to-transparent z-20 transition-opacity duration-200"
         />
       )}
 
@@ -251,8 +295,8 @@ export function ScrollableTabsBar({
             }}
             className={`absolute top-0 bottom-0 rounded-[2px] transition-colors duration-150 ${
               isDragging
-                ? "bg-[#0E639C]"
-                : "bg-[#797979]/45 hover:bg-[#797979]/80 active:bg-[#0E639C]"
+                ? "bg-vscode-primary"
+                : "bg-vscode-muted/45 hover:bg-vscode-muted/80 active:bg-vscode-primary"
             }`}
           />
         </div>

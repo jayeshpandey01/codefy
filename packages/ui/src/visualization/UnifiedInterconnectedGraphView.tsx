@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import {
   Background,
   Controls,
@@ -12,7 +12,8 @@ import {
   type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { Finding, GraphNode, WorkspaceGraph, WorkspaceGraphNode } from "@whoami/types";
+import { useTheme } from "../components/ThemeContext.js";
+import type { Finding, GraphEdge, GraphNode, WorkspaceGraph, WorkspaceGraphNode } from "@whoami/types";
 import { useGraphLayout } from "./useGraphLayout.js";
 import { SourceNode } from "./nodes/SourceNode.js";
 import { SinkNode } from "./nodes/SinkNode.js";
@@ -31,6 +32,14 @@ import {
   FolderIcon,
   ShieldCheckIcon,
 } from "../components/Icons.js";
+import {
+  GRAPH_MIN_ZOOM,
+  GRAPH_MAX_ZOOM,
+  GRAPH_DEFAULT_ZOOM,
+  GRAPH_DEFAULT_FIT_VIEW_OPTIONS,
+} from "./zoom-config.js";
+import { GraphZoomControls } from "./GraphZoomControls.js";
+import { GraphFocusHelper } from "./GraphFocusHelper.js";
 
 const nodeTypes: NodeTypes = {
   source: SourceNode,
@@ -59,6 +68,7 @@ export interface UnifiedInterconnectedGraphViewProps {
   readonly onJumpToLine?: (filePath: string, line: number) => void;
   readonly direction?: "DOWN" | "RIGHT";
   readonly pipelineMode?: "bugs" | "full";
+  readonly targetFilePath?: string;
 }
 
 export function UnifiedInterconnectedGraphView({
@@ -68,7 +78,16 @@ export function UnifiedInterconnectedGraphView({
   onJumpToLine,
   direction = "DOWN",
   pipelineMode = "full",
+  targetFilePath,
 }: UnifiedInterconnectedGraphViewProps): ReactElement {
+  // React Flow's own built-in dark/light chrome (canvas background,
+  // minimap, controls, connection lines) is independent of our
+  // data-theme CSS variables -- colorMode must be set explicitly to
+  // whichever kind the active app theme is, or it silently defaults to
+  // its own hardcoded dark palette regardless of the selected theme.
+  const { theme: activeThemeId, themes: allThemes } = useTheme();
+  const reactFlowColorMode = allThemes.find((t) => t.id === activeThemeId)?.kind ?? "dark";
+
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
 
@@ -81,13 +100,53 @@ export function UnifiedInterconnectedGraphView({
     return buildUnifiedInterconnectedGraph(workspaceGraph, filteredFindings, { pipelineMode });
   }, [workspaceGraph, filteredFindings, pipelineMode]);
 
+  // Focus and select node matching targetFilePath (e.g. from Quick Search)
+  useEffect(() => {
+    if (!targetFilePath) return;
+    const norm = targetFilePath.replace(/\\/g, "/");
+    const matchedNode = unifiedNodes.find((n) => {
+      const nNorm = n.filePath?.replace(/\\/g, "/");
+      return (
+        n.filePath === targetFilePath ||
+        (nNorm && (nNorm === norm || norm.endsWith(nNorm) || nNorm.endsWith(norm))) ||
+        n.id === `file:${norm}` ||
+        n.id.includes(norm)
+      );
+    });
+    if (matchedNode) {
+      setActiveNodeId(matchedNode.id);
+    }
+  }, [targetFilePath, unifiedNodes]);
+
   const { graph, isLayouting, error } = useGraphLayout(
     unifiedNodes,
     unifiedEdges,
     direction,
   );
 
-  // Path tracing highlight calculation
+  // Precompute adjacency list for O(1) edge lookups during BFS path tracing
+  const { downstreamMap, upstreamMap } = useMemo(() => {
+    const down = new Map<string, GraphEdge[]>();
+    const up = new Map<string, GraphEdge[]>();
+    for (const e of unifiedEdges) {
+      let downList = down.get(e.source);
+      if (!downList) {
+        downList = [];
+        down.set(e.source, downList);
+      }
+      downList.push(e);
+
+      let upList = up.get(e.target);
+      if (!upList) {
+        upList = [];
+        up.set(e.target, upList);
+      }
+      upList.push(e);
+    }
+    return { downstreamMap: down, upstreamMap: up };
+  }, [unifiedEdges]);
+
+  // Path tracing highlight calculation (O(V' + E') via adjacency list)
   const { highlightedNodeIds, highlightedEdgeIds } = useMemo(() => {
     if (!activeNodeId) {
       return {
@@ -102,13 +161,14 @@ export function UnifiedInterconnectedGraphView({
     const queueDown = [activeNodeId];
     while (queueDown.length > 0) {
       const curr = queueDown.shift()!;
-      for (const e of unifiedEdges) {
-        if (e.source === curr && !nIds.has(e.target)) {
-          nIds.add(e.target);
+      const outgoing = downstreamMap.get(curr);
+      if (outgoing) {
+        for (const e of outgoing) {
           eIds.add(e.id);
-          queueDown.push(e.target);
-        } else if (e.source === curr) {
-          eIds.add(e.id);
+          if (!nIds.has(e.target)) {
+            nIds.add(e.target);
+            queueDown.push(e.target);
+          }
         }
       }
     }
@@ -116,19 +176,20 @@ export function UnifiedInterconnectedGraphView({
     const queueUp = [activeNodeId];
     while (queueUp.length > 0) {
       const curr = queueUp.shift()!;
-      for (const e of unifiedEdges) {
-        if (e.target === curr && !nIds.has(e.source)) {
-          nIds.add(e.source);
+      const incoming = upstreamMap.get(curr);
+      if (incoming) {
+        for (const e of incoming) {
           eIds.add(e.id);
-          queueUp.push(e.source);
-        } else if (e.target === curr) {
-          eIds.add(e.id);
+          if (!nIds.has(e.source)) {
+            nIds.add(e.source);
+            queueUp.push(e.source);
+          }
         }
       }
     }
 
     return { highlightedNodeIds: nIds, highlightedEdgeIds: eIds };
-  }, [activeNodeId, unifiedEdges]);
+  }, [activeNodeId, downstreamMap, upstreamMap]);
 
   const flowNodes: Node[] = useMemo(() => {
     if (!graph) return [];
@@ -204,7 +265,7 @@ export function UnifiedInterconnectedGraphView({
 
   if (error) {
     return (
-      <div role="alert" className="p-4 text-sm text-[#F14C4C]">
+      <div role="alert" className="p-4 text-sm text-severity-critical">
         Failed to lay out unified graph: {error.message}
       </div>
     );
@@ -212,7 +273,7 @@ export function UnifiedInterconnectedGraphView({
 
   if (unifiedNodes.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-xs text-[#858585]">
+      <div className="flex h-full items-center justify-center p-4 text-xs text-vscode-muted">
         No codebase structure or vulnerability flows mapped yet. Run a workspace scan.
       </div>
     );
@@ -220,33 +281,33 @@ export function UnifiedInterconnectedGraphView({
 
   if (!graph || isLayouting) {
     return (
-      <div className="flex h-full items-center justify-center p-4 text-xs text-[#858585]">
+      <div className="flex h-full items-center justify-center p-4 text-xs text-vscode-muted">
         Building unified architecture & security graph…
       </div>
     );
   }
 
   return (
-    <div className="relative w-full h-full bg-[#1E1E1E] font-sans overflow-hidden select-none">
+    <div className="relative w-full h-full bg-vscode-bg font-sans overflow-hidden select-none">
       {/* Top Filter Bar */}
-      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-2 bg-[#252526]/90 backdrop-blur-md px-2.5 py-1 rounded border border-[#303031] shadow-md text-xs">
-        <span className="text-[#CCA700] font-semibold flex items-center gap-1">
+      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-2 bg-vscode-card px-2.5 py-1 rounded border border-vscode-border shadow-md text-xs">
+        <span className="text-severity-high font-semibold flex items-center gap-1">
           <FolderIcon size={12} />
           Architecture
         </span>
-        <span className="text-[#5A5A5A]">&harr;</span>
-        <span className="text-[#F14C4C] font-semibold flex items-center gap-1">
+        <span className="text-vscode-dim">&harr;</span>
+        <span className="text-severity-critical font-semibold flex items-center gap-1">
           <AlertTriangleIcon size={12} />
           Taint Paths
         </span>
 
-        <span className="text-[#3C3C3C]">|</span>
+        <span className="text-vscode-border">|</span>
 
         {/* Severity filter */}
         <select
           value={filterSeverity}
           onChange={(e) => setFilterSeverity(e.target.value)}
-          className="rounded border border-[#3C3C3C] bg-[#1E1E1E] px-1.5 py-0.5 text-[10px] text-[#E0E0E0] outline-none cursor-pointer"
+          className="rounded border border-vscode-border bg-vscode-bg px-1.5 py-0.5 text-[10px] text-vscode-fg outline-none cursor-pointer"
         >
           <option value="all">All Severities</option>
           <option value="critical">Critical Only</option>
@@ -258,7 +319,7 @@ export function UnifiedInterconnectedGraphView({
           <button
             type="button"
             onClick={() => setActiveNodeId(null)}
-            className="rounded bg-[#094771] px-1.5 py-0.2 text-[10px] text-white hover:bg-[#1177BB] cursor-pointer"
+            className="rounded bg-vscode-focus px-1.5 py-0.2 text-[10px] text-white hover:bg-vscode-primary-hover cursor-pointer"
           >
             Clear Focus
           </button>
@@ -275,16 +336,20 @@ export function UnifiedInterconnectedGraphView({
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        colorMode="dark"
+        onlyRenderVisibleElements={false}
+        colorMode={reactFlowColorMode}
+        minZoom={GRAPH_MIN_ZOOM}
+        maxZoom={GRAPH_MAX_ZOOM}
+        defaultViewport={{ x: 0, y: 0, zoom: GRAPH_DEFAULT_ZOOM }}
         fitView
+        fitViewOptions={GRAPH_DEFAULT_FIT_VIEW_OPTIONS}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#333333" gap={20} />
-        <Controls
-          position="bottom-left"
-          showInteractive={false}
-          className="!border-[#303031] !bg-[#252526] !shadow-md !rounded"
-        />
+        <Background color="var(--color-vscode-border)" gap={20} />
+        <GraphZoomControls position="bottom-left" />
+        <GraphFocusHelper targetNodeId={activeNodeId} />
         <MiniMap
           position="top-right"
           nodeStrokeWidth={3}
@@ -297,7 +362,7 @@ export function UnifiedInterconnectedGraphView({
             return "#3C3C3C";
           }}
           maskColor="rgba(30, 30, 30, 0.75)"
-          className="!border-[#303031] !bg-[#252526] !rounded-md !shadow-md !mt-2.5 !mr-2.5"
+          className="!border-vscode-border !bg-vscode-card !rounded-md !shadow-md !mt-2.5 !mr-2.5"
           style={{ width: 140, height: 90 }}
         />
       </ReactFlow>

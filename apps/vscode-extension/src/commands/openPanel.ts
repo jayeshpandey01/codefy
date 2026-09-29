@@ -8,6 +8,6 @@ export function registerOpenPanelCommand(
   engineHost: EngineHost,
 ): vscode.Disposable {
   return vscode.commands.registerCommand("whoami.openPanel", () => {
-    WhoAmIPanel.createOrShow(context.extensionUri, engineHost);
+    WhoAmIPanel.createOrShow(context, engineHost);
   });
 }

@@ -42,4 +42,13 @@ export interface IAstGrepAdapter {
    * returns an empty array instead.
    */
   findMatches(sourceCode: string, ruleYaml: string): AstGrepMatch[];
+
+  /**
+   * High-performance batch rule evaluation: parses `sourceCode` AST once per language
+   * and runs all rules against the pre-parsed AST, eliminating redundant Tree-sitter parses.
+   */
+  findMatchesForAllRules?(
+    sourceCode: string,
+    rules: readonly string[],
+  ): AstGrepMatch[];
 }

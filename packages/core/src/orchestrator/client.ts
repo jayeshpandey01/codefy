@@ -1,6 +1,16 @@
 import {
   type AuditEventRead,
+  type ControllerJobClaim,
+  type ControllerJobCompletePayload,
+  type ControllerJobFailPayload,
+  type ControllerJobStatus,
+  type HealthLiveResponse,
+  type HealthReadyResponse,
+  type ListSastScansParams,
+  type ListScansParams,
   type OrchestratorClientConfig,
+  type PaginationParams,
+  type PlatformStatsRead,
   type SASTScanCreate,
   type SastProfilesResponse,
   type ScanCreate,
@@ -11,13 +21,69 @@ import {
   VercelError,
 } from "@whoami/types";
 import { Logger } from "../logging/logger.js";
+import { DEFAULT_ORCHESTRATOR_URL } from "./constants.js";
+import { generateControllerHmacHeaders } from "./hmac.js";
 
-export const DEFAULT_ORCHESTRATOR_URL = "https://axiom-xjkc.onrender.com";
+export { DEFAULT_ORCHESTRATOR_URL };
 
 export interface PollScanOptions {
+  /** Initial poll interval; polling backs off from here while nothing changes. */
   intervalMs?: number;
+  /** Ceiling for the backed-off poll interval. */
+  maxIntervalMs?: number;
   maxWaitMs?: number;
   onProgress?: (scan: ScanRead) => void;
+}
+
+export interface PollScansOptions extends Omit<PollScanOptions, "onProgress"> {
+  kind?: "dast" | "sast";
+  /**
+   * When every polled scan belongs to this target, one list request per tick
+   * covers all of them instead of one status request per scan.
+   */
+  targetId?: string;
+  onProgress?: (scans: readonly ScanRead[]) => void;
+}
+
+export interface PolledScan {
+  scan: ScanRead;
+  result?: ScanResultRead;
+}
+
+const TERMINAL_SCAN_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/**
+ * The backend now guarantees every scan reaches a terminal state: scanner
+ * subprocesses time out at <=30 min (profiles.py), and a controller that dies
+ * mid-scan has its heartbeat lease expire within ~4 min (app/worker.py). So the
+ * client can wait out the longest legitimate scan instead of abandoning a
+ * still-running nuclei/ZAP job at 10 min.
+ */
+export const DEFAULT_POLL_MAX_WAIT_MS = 40 * 60 * 1000;
+
+/** Consecutive transient poll failures tolerated before giving up. */
+const MAX_CONSECUTIVE_POLL_ERRORS = 8;
+
+function isTransientOrchestratorError(err: unknown): err is OrchestratorApiError {
+  if (!(err instanceof OrchestratorApiError)) return false;
+  if (
+    err.code === "rate_limited" ||
+    err.code === "request_timeout" ||
+    err.code === "network_error"
+  ) {
+    return true;
+  }
+  // 502/503/504: Render returns these while the API restarts during a deploy.
+  return err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504;
+}
+
+function withJitter(ms: number): number {
+  // ±20% so many pollers don't fire in lockstep.
+  return Math.round(ms * (0.8 + Math.random() * 0.4));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface OrchestratorErrorMeta {
@@ -30,6 +96,8 @@ export interface OrchestratorErrorMeta {
 
 export class OrchestratorApiError extends VercelError {
   public readonly responseBody: unknown;
+  /** From a 429's Retry-After header, when the server sent one. */
+  public retryAfterMs?: number;
 
   constructor(
     message: string,
@@ -53,14 +121,31 @@ export class OrchestratorApiError extends VercelError {
   }
 }
 
+export function cleanCredential(val?: string | null): string | undefined {
+  if (!val) return undefined;
+  const trimmed = val.trim().replace(/^["']|["']$/g, "").trim();
+  if (
+    !trimmed ||
+    trimmed === "undefined" ||
+    trimmed === "null" ||
+    trimmed === "none" ||
+    trimmed === "YOUR_API_KEY" ||
+    trimmed === "<YOUR_API_KEY>" ||
+    trimmed === "<OPERATOR_OR_ADMIN_API_KEY>"
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 /**
  * Sanitizes user input into a plain hostname or IP address without URL scheme, port, or path,
  * as strictly required by the Orchestrator API (/v1/targets).
  */
 export function sanitizeTargetHostname(raw: string): string {
-  if (!raw) return "target.internal";
+  if (!raw) return "scan-target.example.com";
   let cleaned = raw.trim();
-  // Strip protocol scheme (http://, https://, ws://, wss://, etc.)
+  // Strip protocol scheme (http://, https://, ws://, etc.)
   cleaned = cleaned.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i, "");
   // Strip paths, query strings, and hashes
   cleaned = cleaned.replace(/[/?#].*$/, "");
@@ -69,38 +154,89 @@ export function sanitizeTargetHostname(raw: string): string {
     const parts = cleaned.split(":");
     if (parts[0]) cleaned = parts[0];
   }
-  return cleaned.trim() || "target.internal";
+  cleaned = cleaned.trim();
+  if (!cleaned || cleaned.endsWith(".internal") || cleaned === "localhost") {
+    return "scan-target.example.com";
+  }
+  return cleaned;
+}
+
+/**
+ * Builds a query string from key-value pairs, omitting undefined and null entries.
+ */
+export function buildQueryString(params?: Record<string, unknown>): string {
+  if (!params) return "";
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") {
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    }
+  }
+  return parts.length > 0 ? `?${parts.join("&")}` : "";
 }
 
 export class ScanOrchestratorClient {
   public readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly adminApiKey?: string;
+  private readonly authMode: "api_key" | "bearer";
+  private readonly jwtToken?: string;
+  private readonly controllerSecret?: string;
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
   private readonly logger: Logger;
 
   constructor(config: OrchestratorClientConfig & { logger?: Logger } = {}) {
-    this.baseUrl = (config.baseUrl || DEFAULT_ORCHESTRATOR_URL).replace(
-      /\/+$/,
-      "",
-    );
-    this.apiKey =
-      config.apiKey ||
-      (typeof process !== "undefined" ? process.env?.["API_KEY"] : undefined) ||
-      "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
-    this.adminApiKey =
-      config.adminApiKey ||
+    const rawUrl =
+      config.baseUrl ||
       (typeof process !== "undefined"
-        ? process.env?.["ADMIN_API_KEY"]
+        ? process.env?.["ORCHESTRATOR_URL"]
         : undefined) ||
-      "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
+      DEFAULT_ORCHESTRATOR_URL;
+    this.baseUrl = cleanCredential(rawUrl)?.replace(/\/+$/, "") || DEFAULT_ORCHESTRATOR_URL;
+
+    this.apiKey = cleanCredential(
+      config.apiKey ||
+        (typeof process !== "undefined" ? process.env?.["API_KEY"] : undefined),
+    );
+
+    this.adminApiKey = cleanCredential(
+      config.adminApiKey ||
+        (typeof process !== "undefined"
+          ? process.env?.["ADMIN_API_KEY"]
+          : undefined),
+    );
+
+    this.authMode = config.authMode || "api_key";
+    this.jwtToken = cleanCredential(
+      config.jwtToken ||
+        config.bearerToken ||
+        (typeof process !== "undefined"
+          ? process.env?.["AUTH_TOKEN"]
+          : undefined),
+    );
+
+    this.controllerSecret = cleanCredential(
+      config.controllerSecret ||
+        (typeof process !== "undefined"
+          ? process.env?.["CONTROLLER_SHARED_SECRET"]
+          : undefined),
+    );
+
+    // Bind the global fetch: in a browser/webview it's branded to its global,
+    // so calling it as `this.fetchFn(...)` throws "Illegal invocation" (same
+    // fix as GatewayAuthClient's constructor).
     this.fetchFn =
       (config.fetchFn as typeof fetch) ||
       (typeof fetch !== "undefined"
-        ? fetch
+        ? fetch.bind(globalThis)
         : (undefined as unknown as typeof fetch));
-    this.timeoutMs = config.timeoutMs || 30000;
+
+    // Render's free/hobby tier spins the service down after inactivity and takes
+    // 30-50s to cold-start on the next request, so a 30s timeout aborts client-side
+    // right as the server would have responded. 60s comfortably covers cold starts
+    // while still callable with a shorter config.timeoutMs when the caller knows better.
+    this.timeoutMs = config.timeoutMs || 60000;
     this.logger = (
       config.logger || new Logger({ source: "orchestrator-client" })
     ).child("orchestrator-client");
@@ -112,7 +248,7 @@ export class ScanOrchestratorClient {
       method?: "GET" | "POST" | "PUT" | "DELETE";
       body?: unknown;
       headers?: Record<string, string>;
-      auth?: "admin" | "operator" | "none";
+      auth?: "admin" | "operator" | "controller" | "none";
       idempotencyKey?: string;
     } = {},
   ): Promise<T> {
@@ -136,7 +272,7 @@ export class ScanOrchestratorClient {
       ...options.headers,
     };
 
-    if (options.body !== undefined) {
+    if (options.body !== undefined && options.body !== null) {
       headers["Content-Type"] = "application/json";
     }
 
@@ -144,20 +280,85 @@ export class ScanOrchestratorClient {
       headers["Idempotency-Key"] = options.idempotencyKey;
     }
 
+    // Attach credentials according to endpoint role requirements
+    let activeKeyPreview = "none";
     if (authType === "admin") {
-      const key = this.adminApiKey || this.apiKey;
-      if (key) {
-        headers["X-API-Key"] = key;
+      const key = this.adminApiKey;
+      if (this.jwtToken) {
+        headers["Authorization"] = `Bearer ${this.jwtToken}`;
+        activeKeyPreview = `Bearer jwt (len ${this.jwtToken.length})`;
+      } else if (key) {
+        activeKeyPreview = `${key.slice(0, 4)}...${key.slice(-4)} (len ${key.length})`;
+        if (this.authMode === "bearer") {
+          headers["Authorization"] = `Bearer ${key}`;
+        } else {
+          headers["X-API-Key"] = key;
+        }
+      } else {
+        throw new OrchestratorApiError(
+          "Admin authentication required but no ADMIN_API_KEY or Bearer token configured",
+          401,
+          null,
+          {
+            code: "admin_auth_missing",
+            reason: "Admin credentials missing from environment and client configuration.",
+            hint: "Target registration and audit inspection require ADMIN_API_KEY. Configure ADMIN_API_KEY in .env or settings.",
+            fix: "Configure ADMIN_API_KEY in .env or settings.",
+          },
+        );
       }
     } else if (authType === "operator") {
       const key = this.apiKey || this.adminApiKey;
-      if (key) {
-        headers["X-API-Key"] = key;
+      if (this.jwtToken) {
+        headers["Authorization"] = `Bearer ${this.jwtToken}`;
+        activeKeyPreview = `Bearer jwt (len ${this.jwtToken.length})`;
+      } else if (key) {
+        activeKeyPreview = `${key.slice(0, 4)}...${key.slice(-4)} (len ${key.length})`;
+        if (this.authMode === "bearer") {
+          headers["Authorization"] = `Bearer ${key}`;
+        } else {
+          headers["X-API-Key"] = key;
+        }
+      } else {
+        throw new OrchestratorApiError(
+          "Operator authentication required but no API_KEY or Bearer token configured",
+          401,
+          null,
+          {
+            code: "auth_missing",
+            reason: "Operator credentials missing from environment and client configuration.",
+            hint: "Provide apiKey or set API_KEY environment variable.",
+            fix: "Configure API_KEY in .env or settings.",
+          },
+        );
       }
+    } else if (authType === "controller") {
+      if (!this.controllerSecret) {
+        throw new OrchestratorApiError(
+          "Controller authentication required but no CONTROLLER_SHARED_SECRET configured",
+          401,
+          null,
+          {
+            code: "controller_secret_missing",
+            reason: "Controller HMAC shared secret is missing.",
+            hint: "Provide controllerSecret in client configuration or set CONTROLLER_SHARED_SECRET.",
+            fix: "Configure CONTROLLER_SHARED_SECRET in .env or worker settings.",
+          },
+        );
+      }
+      const controllerHeaders = generateControllerHmacHeaders({
+        method,
+        path,
+        body: options.body,
+        secret: this.controllerSecret,
+      });
+      Object.assign(headers, controllerHeaders);
     }
 
     this.logger.debug(`API Request: ${method} ${path}`, {
+      url,
       authType,
+      keyPreview: activeKeyPreview,
       hasBody: options.body !== undefined,
     });
 
@@ -169,16 +370,40 @@ export class ScanOrchestratorClient {
         method,
         headers,
         body:
-          options.body !== undefined ? JSON.stringify(options.body) : undefined,
+          options.body !== undefined && options.body !== null
+            ? typeof options.body === "string"
+              ? options.body
+              : JSON.stringify(options.body)
+            : undefined,
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err: unknown) {
       const durationMs = Date.now() - startTime;
       const errMsg = err instanceof Error ? err.message : String(err);
+      const isTimeout =
+        err instanceof Error &&
+        (err.name === "TimeoutError" || err.name === "AbortError");
+
       this.logger.error(
         `API Request Network Failure: ${method} ${path}`,
         err instanceof Error ? err : new Error(errMsg),
-        { durationMs },
+        { durationMs, isTimeout },
       );
+
+      if (isTimeout) {
+        throw new OrchestratorApiError(
+          `Timed out waiting for Orchestrator response after ${this.timeoutMs}ms: ${method} ${path}`,
+          0,
+          null,
+          {
+            code: "request_timeout",
+            reason: `${this.baseUrl} did not respond within ${this.timeoutMs}ms. Free-tier deployments spin down when idle and can take up to a minute to cold-start on the next request.`,
+            hint: "If the service was idle, the first request after a while wakes it up but can still time out — retry once.",
+            fix: "Retry the request, or raise timeoutMs in the orchestrator client config if this happens consistently on a warm service.",
+          },
+        );
+      }
+
       throw new OrchestratorApiError(
         `Network error communicating with Orchestrator: ${errMsg}`,
         0,
@@ -187,7 +412,7 @@ export class ScanOrchestratorClient {
           code: "network_error",
           reason: `Failed to establish connection to ${this.baseUrl}${path}`,
           hint: `Ensure ${this.baseUrl} is reachable and your network is connected.`,
-          fix: "Check ORCHESTRATOR_URL in .env or VS Code settings.",
+          fix: "Check ORCHESTRATOR_URL in .env or settings.",
         },
       );
     }
@@ -209,26 +434,28 @@ export class ScanOrchestratorClient {
 
     if (!response.ok) {
       let errorMessage = `Orchestrator request failed with status ${response.status}`;
+      let errorType = "api_error";
+
       if (responseData && typeof responseData === "object") {
         const obj = responseData as Record<string, unknown>;
-        if ("detail" in obj) {
+
+        // Check unified error envelope: { error: { type, detail, status } }
+        if (obj["error"] && typeof obj["error"] === "object") {
+          const errEnv = obj["error"] as Record<string, unknown>;
+          if (typeof errEnv["type"] === "string") {
+            errorType = errEnv["type"];
+          }
+          if (typeof errEnv["detail"] === "string") {
+            errorMessage = errEnv["detail"];
+          } else if (Array.isArray(errEnv["detail"])) {
+            errorMessage = this.formatDetailArray(errEnv["detail"]);
+          }
+        } else if ("detail" in obj) {
+          // Standard FastAPI fallback: { detail: ... }
           if (typeof obj["detail"] === "string") {
             errorMessage = obj["detail"];
           } else if (Array.isArray(obj["detail"])) {
-            errorMessage = obj["detail"]
-              .map((d: unknown) => {
-                if (d && typeof d === "object") {
-                  const dObj = d as Record<string, unknown>;
-                  const loc = Array.isArray(dObj["loc"])
-                    ? dObj["loc"].join(".")
-                    : "";
-                  const msg =
-                    typeof dObj["msg"] === "string" ? dObj["msg"] : "";
-                  return loc ? `${loc}: ${msg}` : msg;
-                }
-                return String(d);
-              })
-              .join(", ");
+            errorMessage = this.formatDetailArray(obj["detail"]);
           }
         }
       }
@@ -236,8 +463,12 @@ export class ScanOrchestratorClient {
       this.logger.warn(
         `API Error Response: ${method} ${path} -> ${response.status}`,
         {
+          url,
+          authType,
+          keyPreview: activeKeyPreview,
           statusCode: response.status,
           error: errorMessage,
+          errorType,
           durationMs,
         },
       );
@@ -248,29 +479,28 @@ export class ScanOrchestratorClient {
           code: "auth_failed",
           reason:
             "API key was missing, invalid, or has insufficient role permissions for this endpoint.",
-          hint: "Verify API_KEY or ADMIN_API_KEY in your .env or VS Code settings.",
-          fix: "Set a valid API Key in settings.",
+          hint: "Verify API_KEY or ADMIN_API_KEY in your .env or settings.",
+          fix: "Set a valid API Key in settings or .env file.",
         };
       } else if (response.status === 404) {
         meta = {
           code: "not_found",
-          reason:
-            "The requested target or scan was not found on the Orchestrator.",
-          hint: "Ensure the target/scan ID exists before performing this operation.",
+          reason: "The requested resource was not found on the Orchestrator.",
+          hint: "Ensure the ID exists before performing this operation.",
         };
       } else if (response.status === 409) {
         meta = {
           code: "conflict",
           reason:
-            "Scan is currently running or cannot be transitioned to the requested state.",
-          hint: "Wait for the scan job to complete before requesting results.",
+            "Resource is currently in an incompatible state for the requested operation.",
+          hint: "Wait for the scan job to finish or check job status.",
         };
-      } else if (response.status === 422) {
+      } else if (response.status === 422 || errorType === "validation_error") {
         meta = {
           code: "validation_error",
           reason: errorMessage,
-          hint: "Target value must be a valid domain or IP, and profile must match an allowed profile.",
-          fix: "Check input format (e.g. example.com) and try again.",
+          hint: "Payload validation failed on required fields or constraints.",
+          fix: "Check input format against API specifications.",
         };
       } else if (response.status === 429) {
         meta = {
@@ -280,52 +510,132 @@ export class ScanOrchestratorClient {
           hint: "Back off and wait a few moments before retrying.",
           fix: "Slow down request polling rate.",
         };
-      } else if (response.status >= 500) {
-        meta = {
-          code: "server_error",
-          reason: "Orchestrator server encountered an internal error.",
-          hint: "Check server logs or try again later.",
-        };
       }
 
-      throw new OrchestratorApiError(
+      const apiError = new OrchestratorApiError(
         errorMessage,
         response.status,
         responseData,
         meta,
       );
+      if (response.status === 429) {
+        const retryAfterSec = Number.parseInt(
+          response.headers?.get?.("retry-after") ?? "",
+          10,
+        );
+        if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+          apiError.retryAfterMs = retryAfterSec * 1000;
+        }
+      }
+      throw apiError;
     }
 
-    this.logger.debug(`API Success: ${method} ${path} -> ${response.status}`, {
-      durationMs,
-    });
+    this.logger.debug(
+      `API Success Response: ${method} ${path} -> ${response.status}`,
+      { durationMs },
+    );
+
     return responseData as T;
   }
 
+  private formatDetailArray(details: unknown[]): string {
+    return details
+      .map((d: unknown) => {
+        if (d && typeof d === "object") {
+          const dObj = d as Record<string, unknown>;
+          const loc = Array.isArray(dObj["loc"])
+            ? dObj["loc"].filter((x) => x !== "body").join(".")
+            : "";
+          const msg = typeof dObj["msg"] === "string" ? dObj["msg"] : "";
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(d);
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+
+  // ============================================================================
+  // 1. Health & Operational Endpoints (Public)
+  // ============================================================================
+
   /**
-   * Health check
+   * Basic Health Check (GET /health)
    */
-  async getHealth(): Promise<{ status: string }> {
-    return this.request<{ status: string }>("/health", { auth: "none" });
+  async getHealth(): Promise<{ status: string; service: string }> {
+    return this.request<{ status: string; service: string }>("/health", {
+      auth: "none",
+    });
   }
 
   /**
-   * Register a new authorized target (Admin required)
+   * Kubernetes Liveness Probe (GET /health/live)
+   */
+  async getLiveness(): Promise<HealthLiveResponse> {
+    return this.request<HealthLiveResponse>("/health/live", { auth: "none" });
+  }
+
+  /**
+   * Kubernetes / System Readiness Probe (GET /health/ready)
+   */
+  async getReadiness(): Promise<HealthReadyResponse> {
+    return this.request<HealthReadyResponse>("/health/ready", { auth: "none" });
+  }
+
+  // ============================================================================
+  // 2. Target Management Endpoints (Admin Required)
+  // ============================================================================
+
+  /**
+   * Register a new authorized target (POST /v1/targets)
    */
   async registerTarget(target: TargetCreate): Promise<TargetRead> {
-    const sanitizedTarget: TargetCreate = {
+    const isSourceCode =
+      target.target_type === "source_code" ||
+      target.value.startsWith("/") ||
+      target.value.includes("\\") ||
+      target.value.startsWith("git@") ||
+      (target.value.startsWith("https://") && target.value.includes("github.com"));
+
+    const targetPayload: TargetCreate = {
       ...target,
-      value: sanitizeTargetHostname(target.value),
+      target_type: isSourceCode ? "source_code" : (target.target_type || "network"),
+      value: isSourceCode ? target.value.trim() : sanitizeTargetHostname(target.value),
     };
     return this.request<TargetRead>("/v1/targets", {
       method: "POST",
-      body: sanitizedTarget,
+      body: targetPayload,
       auth: "admin",
     });
   }
 
   /**
-   * Queue a new scan job for an authorized target (Operator / Admin)
+   * List Registered Targets with pagination (GET /v1/targets)
+   */
+  async listTargets(params?: PaginationParams): Promise<TargetRead[]> {
+    const qs = buildQueryString(params as Record<string, unknown>);
+    return this.request<TargetRead[]>(`/v1/targets${qs}`, {
+      method: "GET",
+      auth: "admin",
+    });
+  }
+
+  /**
+   * Get Target Details by target ID (GET /v1/targets/{target_id})
+   */
+  async getTarget(targetId: string): Promise<TargetRead> {
+    return this.request<TargetRead>(`/v1/targets/${encodeURIComponent(targetId)}`, {
+      method: "GET",
+      auth: "admin",
+    });
+  }
+
+  // ============================================================================
+  // 3. DAST Scans (Dynamic Application Security Testing)
+  // ============================================================================
+
+  /**
+   * Queue a new DAST scan job (POST /v1/scans)
    */
   async submitScan(
     scan: ScanCreate,
@@ -340,91 +650,208 @@ export class ScanOrchestratorClient {
   }
 
   /**
-   * Retrieve the status of a scan job
+   * List DAST scans with optional filters & pagination (GET /v1/scans)
+   */
+  async listScans(params?: ListScansParams): Promise<ScanRead[]> {
+    const qs = buildQueryString(params as Record<string, unknown>);
+    return this.request<ScanRead[]>(`/v1/scans${qs}`, {
+      method: "GET",
+      auth: "operator",
+    });
+  }
+
+  /**
+   * Retrieve the status of a DAST scan job (GET /v1/scans/{scan_id})
    */
   async getScan(scanId: string): Promise<ScanRead> {
-    return this.request<ScanRead>(`/v1/scans/${scanId}`, {
+    return this.request<ScanRead>(`/v1/scans/${encodeURIComponent(scanId)}`, {
       method: "GET",
       auth: "operator",
     });
   }
 
   /**
-   * Request cancellation of a queued or running scan job
+   * Request cancellation of a queued or running DAST scan job (POST /v1/scans/{scan_id}/cancel)
    */
   async cancelScan(scanId: string): Promise<ScanRead> {
-    return this.request<ScanRead>(`/v1/scans/${scanId}/cancel`, {
-      method: "POST",
-      auth: "operator",
-    });
+    return this.request<ScanRead>(
+      `/v1/scans/${encodeURIComponent(scanId)}/cancel`,
+      {
+        method: "POST",
+        auth: "operator",
+      },
+    );
   }
 
   /**
-   * Get the parsed results, summary, and artifacts of a completed/failed scan
+   * Retry a failed or cancelled DAST scan job (POST /v1/scans/{scan_id}/retry)
+   */
+  async retryScan(scanId: string): Promise<ScanRead> {
+    return this.request<ScanRead>(
+      `/v1/scans/${encodeURIComponent(scanId)}/retry`,
+      {
+        method: "POST",
+        auth: "operator",
+      },
+    );
+  }
+
+  /**
+   * Get the parsed results, summary, and artifacts of a DAST scan (GET /v1/scans/{scan_id}/result)
    */
   async getScanResult(scanId: string): Promise<ScanResultRead> {
-    return this.request<ScanResultRead>(`/v1/scans/${scanId}/result`, {
-      method: "GET",
-      auth: "operator",
-    });
+    return this.request<ScanResultRead>(
+      `/v1/scans/${encodeURIComponent(scanId)}/result`,
+      {
+        method: "GET",
+        auth: "operator",
+      },
+    );
   }
 
   /**
-   * List recent system audit events (Admin required)
-   */
-  async listAuditEvents(): Promise<AuditEventRead[]> {
-    return this.request<AuditEventRead[]>("/v1/audit-events", {
-      method: "GET",
-      auth: "admin",
-    });
-  }
-
-  /**
-   * Polls a scan job until it reaches a terminal status ('completed', 'failed', 'cancelled')
-   * and optionally fetches the final scan result.
+   * Polls a DAST scan job until it reaches a terminal status ('completed', 'failed', 'cancelled')
    */
   async pollScanUntilComplete(
     scanId: string,
     options: PollScanOptions = {},
   ): Promise<{ scan: ScanRead; result?: ScanResultRead }> {
-    const intervalMs = options.intervalMs || 2000;
-    const maxWaitMs = options.maxWaitMs || 120000;
+    const [polled] = await this.pollScansUntilComplete([scanId], {
+      ...options,
+      kind: "dast",
+      onProgress: (scans) => {
+        if (scans[0]) options.onProgress?.(scans[0]);
+      },
+    });
+    return polled!;
+  }
+
+  /**
+   * Polls several scans (all DAST or all SAST) until every one is terminal, and
+   * fetches each result once. Compared with polling each scan in its own loop:
+   * - one list request per tick covers every scan of a run when `targetId` is given;
+   * - the interval backs off (x1.5, jittered, capped) while no status changes,
+   *   and snaps back to `intervalMs` when one does;
+   * - rate limiting (honouring Retry-After), timeouts, network errors and
+   *   deploy-time 502/503/504s are retried instead of aborting the whole run.
+   * Results are returned in `scanIds` order.
+   */
+  async pollScansUntilComplete(
+    scanIds: readonly string[],
+    options: PollScansOptions = {},
+  ): Promise<PolledScan[]> {
+    const kind = options.kind ?? "dast";
+    const baseIntervalMs = options.intervalMs || 2000;
+    const maxIntervalMs = Math.max(options.maxIntervalMs || 10000, baseIntervalMs);
+    const maxWaitMs = options.maxWaitMs || DEFAULT_POLL_MAX_WAIT_MS;
     const startTime = Date.now();
 
+    const latest = new Map<string, ScanRead>();
+    const finished = new Map<string, PolledScan>();
+    let intervalMs = baseIntervalMs;
+    let consecutiveErrors = 0;
+
     while (Date.now() - startTime < maxWaitMs) {
-      const scan = await this.getScan(scanId);
-      options.onProgress?.(scan);
+      let waitMs = intervalMs;
+      try {
+        const pending = scanIds.filter((id) => !finished.has(id));
+        const scans = await this.fetchScanStatuses(pending, kind, options.targetId);
+        consecutiveErrors = 0;
 
-      if (scan.status === "completed") {
-        const result = await this.getScanResult(scanId);
-        return { scan, result };
-      }
-
-      if (scan.status === "failed" || scan.status === "cancelled") {
-        let result: ScanResultRead | undefined;
-        try {
-          result = await this.getScanResult(scanId);
-        } catch {
-          // If no result object was persisted for failure/cancellation, that is acceptable
+        let changed = false;
+        for (const scan of scans) {
+          if (latest.get(scan.id)?.status !== scan.status) changed = true;
+          latest.set(scan.id, scan);
         }
-        return { scan, result };
-      }
+        options.onProgress?.(
+          scanIds.flatMap((id) => {
+            const scan = latest.get(id);
+            return scan ? [scan] : [];
+          }),
+        );
 
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        for (const scan of scans) {
+          if (TERMINAL_SCAN_STATUSES.has(scan.status)) {
+            finished.set(scan.id, { scan, result: await this.fetchTerminalResult(scan, kind) });
+          }
+        }
+        if (finished.size === scanIds.length) {
+          return scanIds.map((id) => finished.get(id)!);
+        }
+
+        intervalMs = changed ? baseIntervalMs : Math.min(intervalMs * 1.5, maxIntervalMs);
+        waitMs = intervalMs;
+      } catch (err) {
+        consecutiveErrors += 1;
+        if (!isTransientOrchestratorError(err) || consecutiveErrors > MAX_CONSECUTIVE_POLL_ERRORS) {
+          throw err;
+        }
+        intervalMs = Math.min(intervalMs * 2, maxIntervalMs);
+        waitMs = Math.max(err.retryAfterMs ?? 0, intervalMs);
+        this.logger.warn(
+          `Transient orchestrator error while polling (${err.code}); retrying in ~${waitMs}ms`,
+        );
+      }
+      await sleep(withJitter(waitMs));
     }
 
+    const unfinished = scanIds.filter((id) => !finished.has(id));
+    const label = kind === "sast" ? "SAST scan" : "scan";
     throw new VercelError(
-      `[ScanOrchestratorClient] Timed out waiting for scan ${scanId} after ${maxWaitMs}ms`,
+      `[ScanOrchestratorClient] Timed out waiting for ${label} ${unfinished.join(", ")} after ${maxWaitMs}ms`,
       {
         code: "scan_timeout",
         scope: "orchestrator",
-        reason: `Scan job ${scanId} remained in non-terminal state after ${maxWaitMs}ms`,
-        hint: "The scan might still be running in the worker daemon or stuck in the queue.",
+        reason: `${label} job(s) ${unfinished.join(", ")} remained in non-terminal state after ${maxWaitMs}ms`,
+        hint: "The scan might still be running, or a backend deployment/restart interrupted it mid-scan without reporting failure in time -- retrying usually resolves this.",
         fix: "Retry polling with a higher maxWaitMs or check controller logs.",
         link: DEFAULT_ORCHESTRATOR_URL,
       },
     );
   }
+
+  private async fetchScanStatuses(
+    scanIds: readonly string[],
+    kind: "dast" | "sast",
+    targetId?: string,
+  ): Promise<ScanRead[]> {
+    const getOne = (id: string) => (kind === "sast" ? this.getSastScan(id) : this.getScan(id));
+    if (!targetId || scanIds.length < 2) {
+      const scans: ScanRead[] = [];
+      for (const id of scanIds) scans.push(await getOne(id));
+      return scans;
+    }
+    const params = { target_id: targetId, limit: 200 };
+    const listed = kind === "sast" ? await this.listSastScans(params) : await this.listScans(params);
+    const wanted = new Set(scanIds);
+    const scans = listed.filter((scan) => wanted.has(scan.id));
+    // Anything the list didn't return (e.g. pushed past the page by newer scans on
+    // the same target) is still fetched individually, so no scan is ever dropped.
+    const seen = new Set(scans.map((scan) => scan.id));
+    for (const id of scanIds) {
+      if (!seen.has(id)) scans.push(await getOne(id));
+    }
+    return scans;
+  }
+
+  private async fetchTerminalResult(
+    scan: ScanRead,
+    kind: "dast" | "sast",
+  ): Promise<ScanResultRead | undefined> {
+    const getResult = (id: string) =>
+      kind === "sast" ? this.getSastScanResult(id) : this.getScanResult(id);
+    if (scan.status === "completed") return getResult(scan.id);
+    try {
+      return await getResult(scan.id);
+    } catch {
+      // No result object is persisted for most failures/cancellations -- acceptable.
+      return undefined;
+    }
+  }
+
+  // ============================================================================
+  // 4. SAST Scans (Static Application Security Testing)
+  // ============================================================================
 
   /**
    * List available SAST profiles, engines, language capabilities, and query bundles.
@@ -438,7 +865,7 @@ export class ScanOrchestratorClient {
   }
 
   /**
-   * Queue a new SAST code analysis job (Joern CPG, Semgrep, or TruffleHog)
+   * Queue a new SAST code analysis job (POST /v1/sast/scans)
    */
   async submitSastScan(
     scan: SASTScanCreate,
@@ -453,33 +880,66 @@ export class ScanOrchestratorClient {
   }
 
   /**
-   * Retrieve the status of a SAST scan job
+   * List SAST scans with optional filters & pagination (GET /v1/sast/scans)
+   */
+  async listSastScans(params?: ListSastScansParams): Promise<ScanRead[]> {
+    const qs = buildQueryString(params as Record<string, unknown>);
+    return this.request<ScanRead[]>(`/v1/sast/scans${qs}`, {
+      method: "GET",
+      auth: "operator",
+    });
+  }
+
+  /**
+   * Retrieve the status of a SAST scan job (GET /v1/sast/scans/{scan_id})
    */
   async getSastScan(scanId: string): Promise<ScanRead> {
-    return this.request<ScanRead>(`/v1/sast/scans/${scanId}`, {
-      method: "GET",
-      auth: "operator",
-    });
+    return this.request<ScanRead>(
+      `/v1/sast/scans/${encodeURIComponent(scanId)}`,
+      {
+        method: "GET",
+        auth: "operator",
+      },
+    );
   }
 
   /**
-   * Request cancellation of a queued or running SAST scan job
+   * Request cancellation of a queued or running SAST scan job (POST /v1/sast/scans/{scan_id}/cancel)
    */
   async cancelSastScan(scanId: string): Promise<ScanRead> {
-    return this.request<ScanRead>(`/v1/sast/scans/${scanId}/cancel`, {
-      method: "POST",
-      auth: "operator",
-    });
+    return this.request<ScanRead>(
+      `/v1/sast/scans/${encodeURIComponent(scanId)}/cancel`,
+      {
+        method: "POST",
+        auth: "operator",
+      },
+    );
   }
 
   /**
-   * Get the parsed results, summary, and findings of a completed/failed SAST scan
+   * Retry a failed or cancelled SAST scan job (POST /v1/sast/scans/{scan_id}/retry)
+   */
+  async retrySastScan(scanId: string): Promise<ScanRead> {
+    return this.request<ScanRead>(
+      `/v1/sast/scans/${encodeURIComponent(scanId)}/retry`,
+      {
+        method: "POST",
+        auth: "operator",
+      },
+    );
+  }
+
+  /**
+   * Get the parsed results, summary, and findings of a SAST scan (GET /v1/sast/scans/{scan_id}/result)
    */
   async getSastScanResult(scanId: string): Promise<ScanResultRead> {
-    return this.request<ScanResultRead>(`/v1/sast/scans/${scanId}/result`, {
-      method: "GET",
-      auth: "operator",
-    });
+    return this.request<ScanResultRead>(
+      `/v1/sast/scans/${encodeURIComponent(scanId)}/result`,
+      {
+        method: "GET",
+        auth: "operator",
+      },
+    );
   }
 
   /**
@@ -490,41 +950,105 @@ export class ScanOrchestratorClient {
     scanId: string,
     options: PollScanOptions = {},
   ): Promise<{ scan: ScanRead; result?: ScanResultRead }> {
-    const intervalMs = options.intervalMs || 2000;
-    const maxWaitMs = options.maxWaitMs || 120000;
-    const startTime = Date.now();
+    const [polled] = await this.pollScansUntilComplete([scanId], {
+      ...options,
+      kind: "sast",
+      onProgress: (scans) => {
+        if (scans[0]) options.onProgress?.(scans[0]);
+      },
+    });
+    return polled!;
+  }
 
-    while (Date.now() - startTime < maxWaitMs) {
-      const scan = await this.getSastScan(scanId);
-      options.onProgress?.(scan);
+  // ============================================================================
+  // 5. Audit & Compliance Endpoints (Admin Required)
+  // ============================================================================
 
-      if (scan.status === "completed") {
-        const result = await this.getSastScanResult(scanId);
-        return { scan, result };
-      }
+  /**
+   * List recent security audit events (GET /v1/audit-events)
+   */
+  async listAuditEvents(): Promise<AuditEventRead[]> {
+    return this.request<AuditEventRead[]>("/v1/audit-events", {
+      method: "GET",
+      auth: "admin",
+    });
+  }
 
-      if (scan.status === "failed" || scan.status === "cancelled") {
-        let result: ScanResultRead | undefined;
-        try {
-          result = await this.getSastScanResult(scanId);
-        } catch {
-          // If no result object was persisted for failure/cancellation, that is acceptable
-        }
-        return { scan, result };
-      }
+  // ============================================================================
+  // 6. Dashboard & Statistics Endpoints (Operator / Admin)
+  // ============================================================================
 
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    }
+  /**
+   * Get Platform Dashboard Statistics across targets, scans, and profiles (GET /v1/stats)
+   */
+  async getStats(): Promise<PlatformStatsRead> {
+    return this.request<PlatformStatsRead>("/v1/stats", {
+      method: "GET",
+      auth: "operator",
+    });
+  }
 
-    throw new VercelError(
-      `[ScanOrchestratorClient] Timed out waiting for SAST scan ${scanId} after ${maxWaitMs}ms`,
+  // ============================================================================
+  // 7. Internal Controller Protocol (Private HMAC)
+  // ============================================================================
+
+  /**
+   * Claim next queued job from the orchestrator (POST /v1/internal/controller/jobs/claim)
+   */
+  async claimControllerJob(): Promise<ControllerJobClaim | null> {
+    return this.request<ControllerJobClaim | null>(
+      "/v1/internal/controller/jobs/claim",
       {
-        code: "scan_timeout",
-        scope: "orchestrator",
-        reason: `SAST scan job ${scanId} remained in non-terminal state after ${maxWaitMs}ms`,
-        hint: "The scan might still be running in the worker daemon or stuck in the queue.",
-        fix: "Retry polling with a higher maxWaitMs or check controller logs.",
-        link: DEFAULT_ORCHESTRATOR_URL,
+        method: "POST",
+        body: null,
+        auth: "controller",
+      },
+    );
+  }
+
+  /**
+   * Report controller job completion with findings and risk summary (POST /v1/internal/controller/jobs/{scan_id}/complete)
+   */
+  async completeControllerJob(
+    scanId: string,
+    payload: ControllerJobCompletePayload,
+  ): Promise<ScanResultRead> {
+    return this.request<ScanResultRead>(
+      `/v1/internal/controller/jobs/${encodeURIComponent(scanId)}/complete`,
+      {
+        method: "POST",
+        body: payload,
+        auth: "controller",
+      },
+    );
+  }
+
+  /**
+   * Report controller job failure with descriptive reason (POST /v1/internal/controller/jobs/{scan_id}/fail)
+   */
+  async failControllerJob(
+    scanId: string,
+    payload: ControllerJobFailPayload,
+  ): Promise<ScanRead> {
+    return this.request<ScanRead>(
+      `/v1/internal/controller/jobs/${encodeURIComponent(scanId)}/fail`,
+      {
+        method: "POST",
+        body: payload,
+        auth: "controller",
+      },
+    );
+  }
+
+  /**
+   * Query status of a controller job (GET /v1/internal/controller/jobs/{scan_id}/status)
+   */
+  async getControllerJobStatus(scanId: string): Promise<ControllerJobStatus> {
+    return this.request<ControllerJobStatus>(
+      `/v1/internal/controller/jobs/${encodeURIComponent(scanId)}/status`,
+      {
+        method: "GET",
+        auth: "controller",
       },
     );
   }

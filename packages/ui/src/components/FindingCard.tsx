@@ -24,16 +24,16 @@ const STATUS_LABEL: Record<FindingStatus, string> = {
 };
 
 const STATUS_CLASS: Record<FindingStatus, string> = {
-  confirmed: "bg-[#5A1D1D] text-[#F14C4C] border-[#BE1100]",
-  "needs-verification": "bg-[#382C00] text-[#CCA700] border-[#CCA700]/50",
-  discarded: "bg-[#3A3D41] text-[#858585] border-[#3C3C3C]",
+  confirmed: "bg-[#5A1D1D] text-severity-critical border-[#BE1100]",
+  "needs-verification": "bg-severity-high-bg text-severity-high border-severity-high/50",
+  discarded: "bg-vscode-btn-secondary text-vscode-muted border-vscode-border",
 };
 
 const SEVERITY_STRIPE: Record<Severity, string> = {
-  critical: "bg-[#F14C4C]",
-  high: "bg-[#CCA700]",
-  medium: "bg-[#75BEFF]",
-  low: "bg-[#89D185]",
+  critical: "bg-severity-critical",
+  high: "bg-severity-high",
+  medium: "bg-severity-medium",
+  low: "bg-severity-low",
 };
 
 type PocState = "idle" | "running" | "verified" | "unverified" | "error";
@@ -102,8 +102,8 @@ export function FindingCard({
       onClick={handleSelect}
       className={`relative flex cursor-pointer overflow-hidden rounded border transition-all ${
         isSelected
-          ? "border-[#007ACC] bg-[#094771] shadow-md ring-1 ring-[#007ACC]"
-          : "border-[#303031] bg-[#252526] hover:bg-[#2A2D2E]"
+          ? "border-vscode-focus bg-vscode-card-selected shadow-md ring-1 ring-vscode-focus"
+          : "border-vscode-border bg-vscode-card hover:bg-vscode-card-hover"
       }`}
     >
       <div
@@ -119,28 +119,28 @@ export function FindingCard({
             >
               {STATUS_LABEL[finding.status]}
             </span>
-            <span className="rounded border border-[#007ACC]/40 bg-[#04395E]/40 px-1 py-0.2 text-[9px] font-mono text-[#75BEFF]">
+            <span className="rounded border border-vscode-focus/40 bg-vscode-card-selected/40 px-1 py-0.2 text-[9px] font-mono text-severity-medium">
               [{finding.scope || "security"}:{finding.code || finding.ruleId}]
             </span>
           </div>
           {finding.cwe ? (
-            <span className="font-mono text-xs text-[#858585]">
+            <span className="font-mono text-xs text-vscode-muted">
               {finding.cwe}
             </span>
           ) : null}
         </div>
 
-        <h3 className="text-xs font-semibold text-[#D4D4D4] leading-snug">
+        <h3 className="text-xs font-semibold text-vscode-fg leading-snug">
           {finding.title}
         </h3>
 
         {jumpTarget ? (
-          <p className="font-mono text-[11px] text-[#858585]">
+          <p className="font-mono text-[11px] text-vscode-muted">
             {jumpTarget.filePath}:{jumpTarget.line}
           </p>
         ) : null}
 
-        <p className="text-xs text-[#858585] line-clamp-2 leading-relaxed">
+        <p className="text-xs text-vscode-muted line-clamp-2 leading-relaxed">
           {finding.description}
         </p>
 
@@ -151,9 +151,9 @@ export function FindingCard({
               event.stopPropagation();
               setIsDiffModalOpen(true);
             }}
-            className="flex items-center gap-1 rounded border border-[#3C3C3C] bg-[#3A3D41] hover:bg-[#45494E] px-2 py-0.5 text-[11px] font-medium text-[#D4D4D4] transition cursor-pointer"
+            className="flex items-center gap-1 rounded border border-vscode-border bg-vscode-btn-secondary hover:bg-vscode-btn-secondary-hover px-2 py-0.5 text-[11px] font-medium text-vscode-fg transition cursor-pointer"
           >
-            <WandIcon size={12} className="text-[#75BEFF]" />
+            <WandIcon size={12} className="text-severity-medium" />
             <span>Apply Fix</span>
           </button>
           <button
@@ -163,24 +163,24 @@ export function FindingCard({
               setIsPocModalOpen(true);
             }}
             disabled={pocState === "running"}
-            className="flex items-center gap-1 rounded border border-[#3C3C3C] bg-[#3A3D41] hover:bg-[#45494E] px-2 py-0.5 text-[11px] font-medium text-[#D4D4D4] disabled:opacity-50 transition cursor-pointer"
+            className="flex items-center gap-1 rounded border border-vscode-border bg-vscode-btn-secondary hover:bg-vscode-btn-secondary-hover px-2 py-0.5 text-[11px] font-medium text-vscode-fg disabled:opacity-50 transition cursor-pointer"
           >
             {pocState === "running" ? (
               <>
                 <RefreshCwIcon
                   size={11}
-                  className="animate-spin text-[#75BEFF]"
+                  className="animate-spin text-severity-medium"
                 />
                 <span>Running…</span>
               </>
             ) : pocState === "verified" ? (
               <>
-                <CheckIcon size={10} className="text-[#89D185]" />
-                <span className="text-[#89D185] font-medium">PoC Verified</span>
+                <CheckIcon size={10} className="text-severity-low" />
+                <span className="text-severity-low font-medium">PoC Verified</span>
               </>
             ) : (
               <>
-                <PlayIcon size={10} className="text-[#89D185]" />
+                <PlayIcon size={10} className="text-severity-low" />
                 <span>Run Local PoC</span>
               </>
             )}
@@ -191,9 +191,9 @@ export function FindingCard({
               event.stopPropagation();
               handleJumpToLine();
             }}
-            className="flex items-center gap-1 rounded border border-[#3C3C3C] bg-[#3A3D41] hover:bg-[#45494E] px-2 py-0.5 text-[11px] font-medium text-[#D4D4D4] transition"
+            className="flex items-center gap-1 rounded border border-vscode-border bg-vscode-btn-secondary hover:bg-vscode-btn-secondary-hover px-2 py-0.5 text-[11px] font-medium text-vscode-fg transition"
           >
-            <ExternalLinkIcon size={11} className="text-[#75BEFF]" />
+            <ExternalLinkIcon size={11} className="text-severity-medium" />
             <span>Jump to Line</span>
           </button>
         </div>

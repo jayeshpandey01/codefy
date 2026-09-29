@@ -5,6 +5,7 @@ import {
   getBezierPath,
   type EdgeProps,
 } from "@xyflow/react";
+import { useGraphLod } from "../useGraphLod.js";
 
 export interface TaintEdgeData extends Record<string, unknown> {
   readonly tainted?: boolean;
@@ -21,6 +22,7 @@ const DEFAULT_STROKE = "#75BEFF";
 /**
  * Custom edge for the attack-path graph: styled to VS Code Dark Modern theme
  * with animated particle pulses indicating active taint flow.
+ * Low LOD mode renders static paths without DOM label overhead.
  */
 export function TaintEdge(props: EdgeProps): ReactElement {
   const {
@@ -36,6 +38,7 @@ export function TaintEdge(props: EdgeProps): ReactElement {
     markerEnd,
     style,
   } = props;
+  const { isLowLod } = useGraphLod();
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -57,6 +60,22 @@ export function TaintEdge(props: EdgeProps): ReactElement {
     : tainted
       ? TAINTED_STROKE
       : SAFE_STROKE;
+
+  if (isLowLod) {
+    return (
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke,
+          strokeWidth: isHighlighted ? 2.5 : 1.5,
+          opacity: isDimmed ? 0.25 : 0.85,
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -83,16 +102,16 @@ export function TaintEdge(props: EdgeProps): ReactElement {
               pointerEvents: "none",
             }}
             className={[
-              "flex flex-col items-center rounded border px-1.5 py-0.5 text-[10px] font-mono shadow-md backdrop-blur-sm transition-opacity duration-150",
+              "flex flex-col items-center rounded border px-1.5 py-0.5 text-[10px] font-mono shadow-md transition-opacity duration-150",
               isDimmed ? "opacity-30" : "opacity-100",
               tainted
-                ? "bg-[#252526]/90 border-[#F14C4C]/40 text-[#F14C4C]"
-                : "bg-[#252526]/90 border-[#89D185]/40 text-[#89D185]",
+                ? "bg-vscode-card/95 border-severity-critical/40 text-severity-critical"
+                : "bg-vscode-card/95 border-severity-low/40 text-severity-low",
             ].join(" ")}
           >
             {label && <span className="font-semibold">{label}</span>}
             {payload && (
-              <span className="text-[9px] text-[#A0A0A0] max-w-[120px] truncate">
+              <span className="text-[9px] text-vscode-dim max-w-[120px] truncate">
                 {payload}
               </span>
             )}

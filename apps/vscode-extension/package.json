@@ -1,7 +1,12 @@
 {
-  "name": "@whoami/vscode-extension",
+  "name": "whoami",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jayeshpandey01/codefy.git",
+    "directory": "apps/vscode-extension"
+  },
   "publisher": "whoami",
   "displayName": "WhoAmI",
   "description": "Real-time taint-flow finding detection, visual attack paths, and local runtime verification inside VS Code.",
@@ -14,6 +19,7 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:whoami.scanWorkspace",
     "onCommand:whoami.openPanel"
   ],
@@ -21,13 +27,14 @@
     "commands": [
       {
         "command": "whoami.scanWorkspace",
-        "title": "WhoAmI: Scan Workspace for Findings",
+        "title": "Scan Workspace for Findings",
         "category": "WhoAmI"
       },
       {
         "command": "whoami.openPanel",
-        "title": "WhoAmI: Open Findings Panel",
-        "category": "WhoAmI"
+        "title": "Open Findings Panel",
+        "category": "WhoAmI",
+        "icon": "$(shield)"
       }
     ],
     "configuration": {
@@ -49,6 +56,15 @@
           "description": "Admin API Key for target registration and audit trail inspection."
         }
       }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "whoami.openPanel",
+          "group": "navigation",
+          "when": "true"
+        }
+      ]
     }
   },
   "scripts": {
@@ -59,27 +75,35 @@
     "lint": "eslint src",
     "test": "vitest run",
     "clean": "rimraf dist out *.tsbuildinfo",
-    "package:win32-x64": "node scripts/package.js win32-x64"
+    "package": "node scripts/package.js",
+    "package:win32-x64": "node scripts/package.js win32-x64",
+    "package:win32-arm64": "node scripts/package.js win32-arm64",
+    "package:darwin-x64": "node scripts/package.js darwin-x64",
+    "package:darwin-arm64": "node scripts/package.js darwin-arm64",
+    "package:linux-x64": "node scripts/package.js linux-x64",
+    "package:linux-arm64": "node scripts/package.js linux-arm64",
+    "package:alpine-x64": "node scripts/package.js alpine-x64"
   },
   "dependencies": {
-    "@whoami/core": "workspace:*",
-    "@whoami/ui": "workspace:*",
-    "@whoami/types": "workspace:*",
     "@ast-grep/napi": "catalog:",
-    "web-tree-sitter": "catalog:",
-    "tree-sitter-wasms": "^0.1.11",
+    "@whoami/core": "workspace:*",
+    "@whoami/types": "workspace:*",
+    "@whoami/ui": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "catalog:",
+    "web-tree-sitter-legacy": "npm:web-tree-sitter@0.24.7"
   },
   "devDependencies": {
-    "@types/vscode": "^1.96.0",
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "esbuild": "^0.24.2",
+    "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "rimraf": "^6.0.1",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "rimraf": "^6.0.1"
+    "vitest": "catalog:"
   }
 }

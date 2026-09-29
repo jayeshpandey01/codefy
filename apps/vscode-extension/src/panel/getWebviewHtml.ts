@@ -31,7 +31,7 @@ export function getWebviewHtml(
     `font-src ${webview.cspSource}`,
     // No network access from the webview -- everything it needs travels
     // over the postMessage bridge to the extension host instead.
-    `connect-src 'none'`,
+    `connect-src ${webview.cspSource} https:`,
   ].join("; ");
 
   return `<!DOCTYPE html>

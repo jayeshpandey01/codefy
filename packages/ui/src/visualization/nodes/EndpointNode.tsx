@@ -5,10 +5,10 @@ import { RadioIcon, RemoteScanIcon, ShieldAlertIcon } from "../../components/Ico
 import { NodeInfoCard } from "./NodeInfoCard.js";
 
 const METHOD_STYLES: Record<string, string> = {
-  GET: "bg-[#04395E] text-[#75BEFF] border-[#007ACC]/50",
-  POST: "bg-[#16301A] text-[#89D185] border-[#4EC9B0]/50",
-  PUT: "bg-[#382F00] text-[#FFD700] border-[#CCA700]/50",
-  DELETE: "bg-[#3B1212] text-[#F14C4C] border-[#F14C4C]/50",
+  GET: "bg-vscode-card-selected text-severity-medium border-vscode-focus/50",
+  POST: "bg-[#16301A] text-severity-low border-[#4EC9B0]/50",
+  PUT: "bg-severity-high-bg text-[#FFD700] border-severity-high/50",
+  DELETE: "bg-severity-critical-bg text-severity-critical border-severity-critical/50",
   GRAPHQL: "bg-[#2E1A47] text-[#DDA0DD] border-[#BA55D3]/50",
 };
 
@@ -28,13 +28,13 @@ export const EndpointNode = memo(function EndpointNode({
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`relative w-[240px] max-w-[240px] rounded-lg border bg-[#1E1E1E] p-2.5 font-sans shadow-md transition-colors duration-150 ${
+      className={`relative w-[240px] max-w-[240px] rounded-lg border bg-vscode-bg p-2.5 font-sans shadow-md transition-colors duration-150 ${
         isVulnerable
-          ? "border-[#F14C4C] shadow-[0_0_12px_rgba(241,76,76,0.25)]"
-          : "border-[#303031] hover:border-[#75BEFF]/50"
-      } ${selected ? "ring-2 ring-[#75BEFF]" : ""} ${
+          ? "border-severity-critical shadow-[0_0_12px_rgba(241,76,76,0.25)]"
+          : "border-vscode-border hover:border-severity-medium/50"
+      } ${selected ? "ring-2 ring-severity-medium" : ""} ${
         data.isDimmed ? "opacity-30" : "opacity-100"
-      } ${data.isHighlighted ? "ring-2 ring-[#75BEFF]" : ""}`}
+      } ${data.isHighlighted ? "ring-2 ring-severity-medium" : ""}`}
     >
       <NodeToolbar
         isVisible={isHovered || selected}
@@ -50,10 +50,10 @@ export const EndpointNode = memo(function EndpointNode({
         />
       </NodeToolbar>
       {/* Top Header */}
-      <div className="flex items-center justify-between gap-1 pb-1 border-b border-[#303031]">
+      <div className="flex items-center justify-between gap-1 pb-1 border-b border-vscode-border">
         <div className="flex items-center gap-1.5 min-w-0">
-          <RemoteScanIcon size={13} className={isVulnerable ? "text-[#F14C4C]" : "text-[#89D185]"} />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#CCCCCC]">
+          <RemoteScanIcon size={13} className={isVulnerable ? "text-severity-critical" : "text-severity-low"} />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-vscode-fg">
             Endpoint Route
           </span>
         </div>
@@ -65,13 +65,13 @@ export const EndpointNode = memo(function EndpointNode({
       </div>
 
       {/* Path */}
-      <div className="mt-1 text-xs font-mono font-semibold text-[#E0E0E0] truncate" title={label}>
+      <div className="mt-1 text-xs font-mono font-semibold text-vscode-fg truncate" title={label}>
         {label}
       </div>
 
       {/* Status / Probe summary */}
       {description && (
-        <div className="text-[10px] font-mono text-[#858585] truncate mt-0.5">
+        <div className="text-[10px] font-mono text-vscode-muted truncate mt-0.5">
           {description}
         </div>
       )}
@@ -81,25 +81,25 @@ export const EndpointNode = memo(function EndpointNode({
         type="target"
         position={Position.Top}
         id="top"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#75BEFF]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-severity-medium"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#75BEFF]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-severity-medium"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#75BEFF]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-severity-medium"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!h-2 !w-2 !border-[#1E1E1E] !bg-[#75BEFF]"
+        className="!h-2 !w-2 !border-vscode-bg !bg-severity-medium"
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactSensitiveData, sanitizeString } from "../../logging/redactor.js";
+import { maskAbsolutePaths, redactSensitiveData, sanitizeString } from "../../logging/redactor.js";
 
 describe("redactor & sanitizer", () => {
   it("sanitizes AWS access keys and tokens from strings", () => {
@@ -52,5 +52,27 @@ describe("redactor & sanitizer", () => {
     expect(sanitized.name).toBe("Error");
     expect(sanitized.message).toContain("[REDACTED]");
     expect(sanitized.message).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
+
+  it("sanitizes private keys, database URIs, and Stripe/Google keys", () => {
+    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Y...\n-----END RSA PRIVATE KEY-----";
+    expect(sanitizeString(pem)).toBe("[REDACTED]");
+
+    const dbUri = "connect to postgres://admin:SuperSecretPass123@prod-db.internal:5432/main";
+    expect(sanitizeString(dbUri)).not.toContain("SuperSecretPass123");
+    expect(sanitizeString(dbUri)).toContain("[REDACTED]");
+
+    const google = "AIzaSyD1234567890abcdefghijklmnopqrstuv";
+    expect(sanitizeString(google)).toBe("[REDACTED]");
+
+    const stripe = "sk_live_51Abcdefghijklmnopqrstuv";
+    expect(sanitizeString(stripe)).toBe("[REDACTED]");
+  });
+
+  it("masks absolute machine and user paths to preserve path privacy", () => {
+    const raw = "Error in file /Users/jayesh/Documents/codefy/packages/core/src/auth.ts at line 42";
+    const masked = maskAbsolutePaths(raw, "/Users/jayesh/Documents/codefy");
+    expect(masked).not.toContain("/Users/jayesh");
+    expect(masked).toContain("packages/core/src/auth.ts");
   });
 });

@@ -28,6 +28,350 @@
   --color-severity-low: #89d185;
 }
 
+/* ============================================================
+   THEME OVERRIDES — applied via data-theme on <html>
+   ============================================================ */
+
+/* --- Catppuccin Mocha --- */
+[data-theme="catppuccin"] {
+  --color-vscode-bg: #1e1e2e;
+  --color-vscode-sidebar: #181825;
+  --color-vscode-activitybar: #11111b;
+  --color-vscode-header: #11111b;
+  --color-vscode-card: #1e1e2e;
+  --color-vscode-card-hover: #313244;
+  --color-vscode-card-selected: #45475a;
+  --color-vscode-border: #313244;
+  --color-vscode-focus: #89b4fa;
+  --color-vscode-primary: #89b4fa;
+  --color-vscode-primary-hover: #b4befe;
+  --color-vscode-btn-secondary: #45475a;
+  --color-vscode-btn-secondary-hover: #585b70;
+  --color-vscode-fg: #cdd6f4;
+  --color-vscode-muted: #6c7086;
+  --color-vscode-dim: #45475a;
+  --color-vscode-link: #89dceb;
+  --color-severity-critical: #f38ba8;
+  --color-severity-critical-bg: #4a1a2a;
+  --color-severity-high: #fab387;
+  --color-severity-high-bg: #3d2010;
+  --color-severity-medium: #89b4fa;
+  --color-severity-low: #a6e3a1;
+}
+
+/* --- Tokyo Night --- */
+[data-theme="tokyo-night"] {
+  --color-vscode-bg: #1a1b26;
+  --color-vscode-sidebar: #16161e;
+  --color-vscode-activitybar: #13131a;
+  --color-vscode-header: #13131a;
+  --color-vscode-card: #16161e;
+  --color-vscode-card-hover: #1f2335;
+  --color-vscode-card-selected: #283457;
+  --color-vscode-border: #292e42;
+  --color-vscode-focus: #7aa2f7;
+  --color-vscode-primary: #7aa2f7;
+  --color-vscode-primary-hover: #89b4fa;
+  --color-vscode-btn-secondary: #292e42;
+  --color-vscode-btn-secondary-hover: #3b4261;
+  --color-vscode-fg: #a9b1d6;
+  --color-vscode-muted: #565f89;
+  --color-vscode-dim: #3b4261;
+  --color-vscode-link: #73daca;
+  --color-severity-critical: #f7768e;
+  --color-severity-critical-bg: #3d1520;
+  --color-severity-high: #e0af68;
+  --color-severity-high-bg: #3d2d10;
+  --color-severity-medium: #7aa2f7;
+  --color-severity-low: #9ece6a;
+}
+
+/* --- Dracula --- */
+[data-theme="dracula"] {
+  --color-vscode-bg: #282a36;
+  --color-vscode-sidebar: #21222c;
+  --color-vscode-activitybar: #191a21;
+  --color-vscode-header: #191a21;
+  --color-vscode-card: #21222c;
+  --color-vscode-card-hover: #313341;
+  --color-vscode-card-selected: #44475a;
+  --color-vscode-border: #44475a;
+  --color-vscode-focus: #bd93f9;
+  --color-vscode-primary: #bd93f9;
+  --color-vscode-primary-hover: #cfa8ff;
+  --color-vscode-btn-secondary: #44475a;
+  --color-vscode-btn-secondary-hover: #565b72;
+  --color-vscode-fg: #f8f8f2;
+  --color-vscode-muted: #6272a4;
+  --color-vscode-dim: #44475a;
+  --color-vscode-link: #8be9fd;
+  --color-severity-critical: #ff5555;
+  --color-severity-critical-bg: #4a1515;
+  --color-severity-high: #ffb86c;
+  --color-severity-high-bg: #4a2e10;
+  --color-severity-medium: #8be9fd;
+  --color-severity-low: #50fa7b;
+}
+
+/* --- Ayu Dark --- */
+[data-theme="ayu-dark"] {
+  --color-vscode-bg: #0d1017;
+  --color-vscode-sidebar: #0d1017;
+  --color-vscode-activitybar: #0a0e14;
+  --color-vscode-header: #0a0e14;
+  --color-vscode-card: #131721;
+  --color-vscode-card-hover: #1a2232;
+  --color-vscode-card-selected: #1a2232;
+  --color-vscode-border: #1a2232;
+  --color-vscode-focus: #e6b450;
+  --color-vscode-primary: #e6b450;
+  --color-vscode-primary-hover: #f0c060;
+  --color-vscode-btn-secondary: #1a2232;
+  --color-vscode-btn-secondary-hover: #233040;
+  --color-vscode-fg: #bfbdb6;
+  --color-vscode-muted: #556174;
+  --color-vscode-dim: #3a4a5c;
+  --color-vscode-link: #39bae6;
+  --color-severity-critical: #f07178;
+  --color-severity-critical-bg: #3d1520;
+  --color-severity-high: #e6b450;
+  --color-severity-high-bg: #3d2c00;
+  --color-severity-medium: #39bae6;
+  --color-severity-low: #7fd962;
+}
+
+/* --- GitHub Dark --- */
+[data-theme="github-dark"] {
+  --color-vscode-bg: #0d1117;
+  --color-vscode-sidebar: #161b22;
+  --color-vscode-activitybar: #010409;
+  --color-vscode-header: #010409;
+  --color-vscode-card: #161b22;
+  --color-vscode-card-hover: #1f2d3d;
+  --color-vscode-card-selected: #1f2d3d;
+  --color-vscode-border: #30363d;
+  --color-vscode-focus: #2f81f7;
+  --color-vscode-primary: #2f81f7;
+  --color-vscode-primary-hover: #58a6ff;
+  --color-vscode-btn-secondary: #21262d;
+  --color-vscode-btn-secondary-hover: #30363d;
+  --color-vscode-fg: #e6edf3;
+  --color-vscode-muted: #7d8590;
+  --color-vscode-dim: #3d444d;
+  --color-vscode-link: #58a6ff;
+  --color-severity-critical: #ff7b72;
+  --color-severity-critical-bg: #3d1515;
+  --color-severity-high: #e3b341;
+  --color-severity-high-bg: #3d2d00;
+  --color-severity-medium: #79c0ff;
+  --color-severity-low: #56d364;
+}
+
+/* --- Atom One Dark --- */
+[data-theme="atom-one-dark"] {
+  --color-vscode-bg: #282c34;
+  --color-vscode-sidebar: #21252b;
+  --color-vscode-activitybar: #1c2026;
+  --color-vscode-header: #1c2026;
+  --color-vscode-card: #21252b;
+  --color-vscode-card-hover: #2c313c;
+  --color-vscode-card-selected: #2c313c;
+  --color-vscode-border: #3e4452;
+  --color-vscode-focus: #61afef;
+  --color-vscode-primary: #61afef;
+  --color-vscode-primary-hover: #7bc5ff;
+  --color-vscode-btn-secondary: #3e4452;
+  --color-vscode-btn-secondary-hover: #4c5466;
+  --color-vscode-fg: #abb2bf;
+  --color-vscode-muted: #636d83;
+  --color-vscode-dim: #3e4452;
+  --color-vscode-link: #56b6c2;
+  --color-severity-critical: #e06c75;
+  --color-severity-critical-bg: #3d1520;
+  --color-severity-high: #e5c07b;
+  --color-severity-high-bg: #3d2c00;
+  --color-severity-medium: #61afef;
+  --color-severity-low: #98c379;
+}
+
+/* --- Night Owl --- */
+[data-theme="night-owl"] {
+  --color-vscode-bg: #011627;
+  --color-vscode-sidebar: #010f1a;
+  --color-vscode-activitybar: #01111d;
+  --color-vscode-header: #01111d;
+  --color-vscode-card: #011627;
+  --color-vscode-card-hover: #0b2540;
+  --color-vscode-card-selected: #032f62;
+  --color-vscode-border: #122d42;
+  --color-vscode-focus: #82aaff;
+  --color-vscode-primary: #82aaff;
+  --color-vscode-primary-hover: #9ab8ff;
+  --color-vscode-btn-secondary: #0b2540;
+  --color-vscode-btn-secondary-hover: #163555;
+  --color-vscode-fg: #d6deeb;
+  --color-vscode-muted: #637777;
+  --color-vscode-dim: #1a3a55;
+  --color-vscode-link: #7fdbca;
+  --color-severity-critical: #ef5350;
+  --color-severity-critical-bg: #2d1515;
+  --color-severity-high: #ffcb8b;
+  --color-severity-high-bg: #3d2c00;
+  --color-severity-medium: #82aaff;
+  --color-severity-low: #addb67;
+}
+
+/* --- Monokai Pro --- */
+[data-theme="monokai-pro"] {
+  --color-vscode-bg: #2d2a2e;
+  --color-vscode-sidebar: #221f22;
+  --color-vscode-activitybar: #19181a;
+  --color-vscode-header: #19181a;
+  --color-vscode-card: #221f22;
+  --color-vscode-card-hover: #3a3640;
+  --color-vscode-card-selected: #403e41;
+  --color-vscode-border: #403e41;
+  --color-vscode-focus: #ff6188;
+  --color-vscode-primary: #ff6188;
+  --color-vscode-primary-hover: #ff82a0;
+  --color-vscode-btn-secondary: #403e41;
+  --color-vscode-btn-secondary-hover: #524e55;
+  --color-vscode-fg: #fcfcfa;
+  --color-vscode-muted: #727072;
+  --color-vscode-dim: #403e41;
+  --color-vscode-link: #78dce8;
+  --color-severity-critical: #ff6188;
+  --color-severity-critical-bg: #3d1528;
+  --color-severity-high: #fc9867;
+  --color-severity-high-bg: #3d2010;
+  --color-severity-medium: #78dce8;
+  --color-severity-low: #a9dc76;
+}
+
+/* --- One Dark Pro --- */
+[data-theme="one-dark-pro"] {
+  --color-vscode-bg: #282c34;
+  --color-vscode-sidebar: #21252b;
+  --color-vscode-activitybar: #181a1f;
+  --color-vscode-header: #181a1f;
+  --color-vscode-card: #21252b;
+  --color-vscode-card-hover: #2c313c;
+  --color-vscode-card-selected: #2c313c;
+  --color-vscode-border: #3e4452;
+  --color-vscode-focus: #61afef;
+  --color-vscode-primary: #e5c07b;
+  --color-vscode-primary-hover: #f0cf8e;
+  --color-vscode-btn-secondary: #3e4452;
+  --color-vscode-btn-secondary-hover: #4c5466;
+  --color-vscode-fg: #abb2bf;
+  --color-vscode-muted: #5c6370;
+  --color-vscode-dim: #3e4452;
+  --color-vscode-link: #56b6c2;
+  --color-severity-critical: #e06c75;
+  --color-severity-critical-bg: #3d1520;
+  --color-severity-high: #e5c07b;
+  --color-severity-high-bg: #3d2c00;
+  --color-severity-medium: #61afef;
+  --color-severity-low: #98c379;
+}
+
+/* --- Light --- */
+[data-theme="light"] {
+  --color-vscode-bg: #ffffff;
+  --color-vscode-sidebar: #f3f3f3;
+  --color-vscode-activitybar: #e8e8e8;
+  --color-vscode-header: #e8e8e8;
+  --color-vscode-card: #f3f3f3;
+  --color-vscode-card-hover: #e8e8e8;
+  --color-vscode-card-selected: #cce5ff;
+  --color-vscode-border: #d4d4d4;
+  --color-vscode-focus: #0066bf;
+  --color-vscode-primary: #0066bf;
+  --color-vscode-primary-hover: #005aa0;
+  --color-vscode-btn-secondary: #d4d4d4;
+  --color-vscode-btn-secondary-hover: #c0c0c0;
+  --color-vscode-fg: #1f1f1f;
+  --color-vscode-muted: #616161;
+  --color-vscode-dim: #a0a0a0;
+  --color-vscode-link: #0451a5;
+  --color-severity-critical: #cd3131;
+  --color-severity-critical-bg: #ffd7d7;
+  --color-severity-high: #854a00;
+  --color-severity-high-bg: #fff3cd;
+  --color-severity-medium: #0451a5;
+  --color-severity-low: #008000;
+}
+
+/* --- Solarized Light --- */
+[data-theme="solarized-light"] {
+  --color-vscode-bg: #fdf6e3;
+  --color-vscode-sidebar: #eee8d5;
+  --color-vscode-activitybar: #e8e0c8;
+  --color-vscode-header: #e8e0c8;
+  --color-vscode-card: #eee8d5;
+  --color-vscode-card-hover: #e0d9c3;
+  --color-vscode-card-selected: #d0e8f0;
+  --color-vscode-border: #cdc6b0;
+  --color-vscode-focus: #268bd2;
+  --color-vscode-primary: #268bd2;
+  --color-vscode-primary-hover: #1a7ab8;
+  --color-vscode-btn-secondary: #d5cdb8;
+  --color-vscode-btn-secondary-hover: #c8c0a8;
+  --color-vscode-fg: #657b83;
+  --color-vscode-muted: #93a1a1;
+  --color-vscode-dim: #b8c0b8;
+  --color-vscode-link: #268bd2;
+  --color-severity-critical: #dc322f;
+  --color-severity-critical-bg: #fde8e8;
+  --color-severity-high: #b58900;
+  --color-severity-high-bg: #fdf2c0;
+  --color-severity-medium: #268bd2;
+  --color-severity-low: #859900;
+}
+
+
+/* React Flow (@xyflow/react) ships its own CSS custom properties for the
+   canvas background, node chrome, controls, and minimap -- these are
+   completely separate from our --color-vscode-* variables above, so without
+   this block the graph canvas/controls stay locked to xyflow's own hardcoded
+   light or dark palette (selected via the `colorMode` prop) no matter which
+   of our 12 themes is active. Mapping them to our own variables here makes
+   every graph view follow the exact active theme automatically. */
+.react-flow {
+  --xy-background-color: var(--color-vscode-bg);
+  --xy-node-background-color: var(--color-vscode-card);
+  --xy-node-color: var(--color-vscode-fg);
+  --xy-node-border: 1px solid var(--color-vscode-border);
+  --xy-node-boxshadow-hover: 0 1px 4px 1px rgba(0, 0, 0, 0.15);
+  --xy-node-boxshadow-selected: 0 0 0 1px var(--color-vscode-focus);
+  --xy-minimap-background-color: var(--color-vscode-card);
+  --xy-minimap-node-background-color: var(--color-vscode-border);
+  --xy-controls-button-background-color: var(--color-vscode-card);
+  --xy-controls-button-background-color-hover: var(--color-vscode-card-hover);
+  --xy-controls-button-color: var(--color-vscode-fg);
+  --xy-controls-button-color-hover: var(--color-vscode-fg);
+  --xy-controls-button-border-color: var(--color-vscode-border);
+  --xy-edge-label-background-color: var(--color-vscode-card);
+  --xy-edge-label-color: var(--color-vscode-fg);
+  --xy-edge-stroke: var(--color-vscode-border);
+  --xy-edge-stroke-selected: var(--color-vscode-focus);
+  --xy-connectionline-stroke: var(--color-vscode-muted);
+  --xy-attribution-background-color: transparent;
+}
+
+/* Smooth theme switching -- background/border/text colors fade to their new
+   value instead of jumping instantly when [data-theme] changes on <html>.
+   Universal-selector specificity (0,0,0,0) means any element with a more
+   specific Tailwind transition utility (e.g. `transition-colors duration-300`)
+   still wins on its own properties/duration; this is only a baseline. */
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
+
 /* Ensure clean, professional code blocks without line-level background strips */
 pre code,
 code {

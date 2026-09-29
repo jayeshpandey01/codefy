@@ -9,10 +9,10 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 };
 
 const SEVERITY_CLASS: Record<Severity, string> = {
-  critical: "bg-[#5A1D1D] text-[#F14C4C] border-[#BE1100]",
-  high: "bg-[#382C00] text-[#CCA700] border-[#CCA700]/50",
-  medium: "bg-[#04395E] text-[#75BEFF] border-[#007ACC]/50",
-  low: "bg-[#1E3B20] text-[#89D185] border-[#4EC9B0]/50",
+  critical: "bg-[#5A1D1D] text-severity-critical border-[#BE1100]",
+  high: "bg-severity-high-bg text-severity-high border-severity-high/50",
+  medium: "bg-vscode-card-selected text-severity-medium border-vscode-focus/50",
+  low: "bg-[#1E3B20] text-severity-low border-[#4EC9B0]/50",
 };
 
 export interface SeverityBadgeProps {

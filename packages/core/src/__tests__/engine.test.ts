@@ -89,4 +89,64 @@ describe("AnalysisEngine (end-to-end AST pattern + taint analysis)", () => {
     const result = await engine.scanFile("src/routes/profile.safe.ts", code);
     expect(result.findings).toHaveLength(0);
   });
+
+  it("detects Python source-to-sink security paths", async () => {
+    const code = `
+def handler(request):
+    value = request.args.get("value")
+    os.system(value)
+    cursor.execute(f"SELECT * FROM users WHERE id={value}")
+    requests.get(value)
+    open(value)
+    eval(value)
+`;
+    const result = await engine.scanFile("src/routes/handler.py", code);
+    expect(result.findings.map((finding) => finding.ruleId).sort()).toEqual([
+      "py-code-injection",
+      "py-command-injection",
+      "py-path-traversal",
+      "py-sql-injection",
+      "py-ssrf",
+    ]);
+    expect(result.findings.every((finding) => finding.trace.steps.length >= 2)).toBe(true);
+  });
+
+  it("does not report parameterized Python SQL or shell=False subprocess calls", async () => {
+    const code = `
+def handler(request):
+    value = request.args.get("value")
+    cursor.execute("SELECT * FROM users WHERE id = ?", (value,))
+    subprocess.run(["echo", value], shell=False)
+`;
+    const result = await engine.scanFile("src/routes/handler.safe.py", code);
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("keeps unknown function parameters unconfirmed in both languages", async () => {
+    const javascript = `
+function run(command) {
+  exec(command);
+}
+`;
+    const python = `
+def run(command):
+    os.system(command)
+`;
+    const [jsResult, pythonResult] = await Promise.all([
+      engine.scanFile("src/routes/unknown-source.js", javascript),
+      engine.scanFile("src/routes/unknown-source.py", python),
+    ]);
+
+    expect(jsResult.findings[0]?.status).toBe("needs-verification");
+    expect(pythonResult.findings[0]?.status).toBe("needs-verification");
+  });
+
+  it("does not treat request-looking text inside Python literals as a source", async () => {
+    const code = `
+def run():
+    os.system("request.args")
+`;
+    const result = await engine.scanFile("src/routes/literal.py", code);
+    expect(result.findings).toHaveLength(0);
+  });
 });

@@ -1,0 +1,23 @@
+{
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/dist-*/**": true,
+    "**/.turbo/**": true,
+    "**/coverage/**": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/dist-*": true,
+    "**/.turbo": true,
+    "**/coverage": true
+  },
+  "git.autorefresh": true,
+  "git.autoStash": false
+}
+

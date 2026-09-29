@@ -72,7 +72,7 @@ export function ActionableErrorBanner({
               type="button"
               onClick={onRetry}
               title="Retry operation"
-              className="rounded p-1 text-[#D4D4D4] hover:bg-[#4D1D1D] transition-colors cursor-pointer"
+              className="rounded p-1 text-vscode-fg hover:bg-[#4D1D1D] transition-colors cursor-pointer"
             >
               <RefreshCwIcon size={12} />
             </button>
@@ -82,7 +82,7 @@ export function ActionableErrorBanner({
               type="button"
               onClick={onDismiss}
               title="Dismiss error"
-              className="rounded p-1 text-[#D4D4D4] hover:bg-[#4D1D1D] transition-colors cursor-pointer"
+              className="rounded p-1 text-vscode-fg hover:bg-[#4D1D1D] transition-colors cursor-pointer"
             >
               <XIcon size={12} />
             </button>
@@ -95,7 +95,7 @@ export function ActionableErrorBanner({
   return (
     <div
       role="alert"
-      className={`rounded-md border border-[#BE1100] bg-[#2A1414] p-3 text-xs text-[#E5E5E5] shadow-md transition-all ${className}`}
+      className={`rounded-md border border-[#BE1100] bg-[#2A1414] p-3 text-xs text-vscode-fg shadow-md transition-all ${className}`}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
@@ -115,7 +115,7 @@ export function ActionableErrorBanner({
                 </span>
               )}
               {err.statusCode && (
-                <span className="rounded bg-[#1E1E1E] px-1.5 py-0.5 text-[10px] font-mono text-[#A6A6A6] border border-[#3C3C3C]">
+                <span className="rounded bg-vscode-bg px-1.5 py-0.5 text-[10px] font-mono text-vscode-muted border border-vscode-border">
                   HTTP {err.statusCode}
                 </span>
               )}
@@ -133,7 +133,7 @@ export function ActionableErrorBanner({
               type="button"
               onClick={onRetry}
               title="Retry operation"
-              className="flex items-center gap-1 rounded border border-[#3C3C3C] bg-[#1E1E1E] px-2 py-1 text-[11px] text-[#D4D4D4] hover:bg-[#2A2D2E] hover:text-white transition-colors cursor-pointer"
+              className="flex items-center gap-1 rounded border border-vscode-border bg-vscode-bg px-2 py-1 text-[11px] text-vscode-fg hover:bg-vscode-card-hover hover:text-vscode-fg transition-colors cursor-pointer"
             >
               <RefreshCwIcon size={11} />
               <span>Retry</span>
@@ -144,7 +144,7 @@ export function ActionableErrorBanner({
               type="button"
               onClick={onDismiss}
               title="Dismiss error"
-              className="rounded p-1 text-[#858585] hover:bg-[#3B1515] hover:text-white transition-colors cursor-pointer"
+              className="rounded p-1 text-vscode-muted hover:bg-[#3B1515] hover:text-white transition-colors cursor-pointer"
             >
               <XIcon size={14} />
             </button>
@@ -157,8 +157,8 @@ export function ActionableErrorBanner({
         <div className="mt-3 flex flex-col gap-2 border-t border-[#4D1D1D] pt-2.5">
           {/* Reason / Why */}
           {err.reason && (
-            <div className="flex items-start gap-2 text-[11px] text-[#CCCCCC]">
-              <span className="shrink-0 font-semibold text-[#858585]">
+            <div className="flex items-start gap-2 text-[11px] text-vscode-fg">
+              <span className="shrink-0 font-semibold text-vscode-muted">
                 Why:
               </span>
               <span className="break-words leading-relaxed">{err.reason}</span>

@@ -9,7 +9,7 @@ export function ChatMarkdown({ content }: ChatMarkdownProps): ReactElement {
   const blocks = parseMarkdownBlocks(content);
 
   return (
-    <div className="flex flex-col gap-2 text-xs leading-relaxed text-[#D4D4D4] font-sans">
+    <div className="flex flex-col gap-2 text-xs leading-relaxed text-vscode-fg font-sans">
       {blocks.map((block, idx) => {
         if (block.type === "code") {
           return (
@@ -26,7 +26,7 @@ export function ChatMarkdown({ content }: ChatMarkdownProps): ReactElement {
           return (
             <Tag
               key={idx}
-              className="font-bold text-[#E0E0E0] tracking-wide pt-1 pb-0.5 border-b border-[#303031]/50 text-xs"
+              className="font-bold text-vscode-fg tracking-wide pt-1 pb-0.5 border-b border-vscode-border/50 text-xs"
             >
               {renderInline(block.content)}
             </Tag>
@@ -37,7 +37,7 @@ export function ChatMarkdown({ content }: ChatMarkdownProps): ReactElement {
           return (
             <ul key={idx} className="list-disc list-inside flex flex-col gap-0.5 pl-1">
               {block.items.map((item, itemIdx) => (
-                <li key={itemIdx} className="text-[#CCCCCC]">
+                <li key={itemIdx} className="text-vscode-fg">
                   {renderInline(item)}
                 </li>
               ))}
@@ -46,7 +46,7 @@ export function ChatMarkdown({ content }: ChatMarkdownProps): ReactElement {
         }
 
         return (
-          <p key={idx} className="whitespace-pre-line text-[#D4D4D4]">
+          <p key={idx} className="whitespace-pre-line text-vscode-fg">
             {renderInline(block.content)}
           </p>
         );
@@ -71,20 +71,20 @@ function CodeBlock({ language, code }: { language: string; code: string }): Reac
   const isDiff = language === "diff";
 
   return (
-    <div className="rounded-lg border border-[#3C3C3C] bg-[#1E1E1E] overflow-hidden my-1 shadow-sm font-mono text-[11px]">
+    <div className="rounded-lg border border-vscode-border bg-vscode-bg overflow-hidden my-1 shadow-sm font-mono text-[11px]">
       {/* Code Header */}
-      <div className="flex items-center justify-between px-3 py-1 bg-[#252526] border-b border-[#303031] text-[10px] text-[#858585] uppercase tracking-wider font-sans font-bold">
+      <div className="flex items-center justify-between px-3 py-1 bg-vscode-card border-b border-vscode-border text-[10px] text-vscode-muted uppercase tracking-wider font-sans font-bold">
         <span>{language}</span>
         <button
           type="button"
           onClick={handleCopy}
           title="Copy Code"
-          className="flex items-center gap-1 text-[#858585] hover:text-[#D4D4D4] transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-[#303031]"
+          className="flex items-center gap-1 text-vscode-muted hover:text-vscode-fg transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-vscode-border"
         >
           {copied ? (
             <>
-              <CheckIcon size={11} className="text-[#89D185]" />
-              <span className="text-[#89D185]">Copied</span>
+              <CheckIcon size={11} className="text-severity-low" />
+              <span className="text-severity-low">Copied</span>
             </>
           ) : (
             <>
@@ -99,12 +99,12 @@ function CodeBlock({ language, code }: { language: string; code: string }): Reac
       <div className="p-2.5 overflow-x-auto">
         <pre className="m-0 leading-tight">
           {code.split("\n").map((line, lineIdx) => {
-            let lineClass = "text-[#E0E0E0]";
+            let lineClass = "text-vscode-fg";
             if (isDiff || line.startsWith("+") || line.startsWith("-")) {
               if (line.startsWith("+")) {
-                lineClass = "text-[#89D185] bg-[#1E3B20]/40 -mx-2.5 px-2.5 block";
+                lineClass = "text-severity-low bg-[#1E3B20]/40 -mx-2.5 px-2.5 block";
               } else if (line.startsWith("-")) {
-                lineClass = "text-[#F14C4C] bg-[#3B1212]/40 -mx-2.5 px-2.5 block";
+                lineClass = "text-severity-critical bg-severity-critical-bg/40 -mx-2.5 px-2.5 block";
               }
             }
             return (
@@ -261,7 +261,7 @@ function renderInline(text: string): (string | ReactElement)[] {
       parts.push(
         <code
           key={match.index}
-          className="rounded bg-[#2A2D2E] px-1 py-0.2 font-mono text-[11px] text-[#75BEFF] border border-[#3C3C3C]"
+          className="rounded bg-vscode-card-hover px-1 py-0.2 font-mono text-[11px] text-severity-medium border border-vscode-border"
         >
           {token.slice(1, -1)}
         </code>,

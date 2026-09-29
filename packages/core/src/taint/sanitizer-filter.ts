@@ -24,14 +24,24 @@ export async function resolveSanitizerStatus(
   llmProvider: ILlmTriageProvider,
 ): Promise<FindingStatus> {
   const guardSnippet = path.guardSourceSnippet.trim();
+  const hasUnverifiedSource = path.steps.some(
+    (step) =>
+      step.role === "source" &&
+      (step.label.startsWith("Input parameter:") ||
+        step.label.startsWith("Function parameter:")),
+  );
 
   if (guardSnippet.length === 0) {
-    return "confirmed";
+    return hasUnverifiedSource ? "needs-verification" : "confirmed";
   }
 
   const verdict = matchKnownSanitizerPattern(guardSnippet, path.sinkClass);
   if (verdict === "known-safe") {
     return "discarded";
+  }
+
+  if (hasUnverifiedSource) {
+    return "needs-verification";
   }
 
   // Unresolvable by deterministic pattern rules alone -> route to the

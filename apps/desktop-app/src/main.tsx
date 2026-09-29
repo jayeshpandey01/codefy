@@ -1,7 +1,7 @@
-import { StrictMode } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import "@whoami/ui/styles.css";
-import { BridgeProvider } from "@whoami/ui";
+import { BridgeProvider, ThemeProvider } from "@whoami/ui";
 import { App } from "./App.js";
 import { TauriBridgeClient } from "./bridge/TauriBridgeClient.js";
 
@@ -12,6 +12,16 @@ import { TauriBridgeClient } from "./bridge/TauriBridgeClient.js";
 // packages/ui" rule).
 const client = new TauriBridgeClient();
 
+function DesktopRoot(): ReactElement {
+  return (
+    <BridgeProvider client={client}>
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
+    </BridgeProvider>
+  );
+}
+
 const rootElement = document.getElementById("root");
 if (!rootElement) {
   throw new Error("#root element not found in index.html");
@@ -19,8 +29,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <BridgeProvider client={client}>
-      <App />
-    </BridgeProvider>
+    <DesktopRoot />
   </StrictMode>,
 );

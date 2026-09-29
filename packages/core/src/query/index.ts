@@ -11,6 +11,51 @@
  * engine.worker.ts module doc on why that payload is Worker-only).
  */
 export { parseQuery } from "./intent.js";
-export { executeQuery, runChatQuery } from "./executor.js";
-export type { ExecuteQueryOptions } from "./executor.js";
+export { executeQuery, runChatQuery, buildDynamicSuggestions, buildSuggestions } from "./executor.js";
+export type { ExecuteQueryOptions, DynamicSuggestionContext } from "./executor.js";
 export { pickGraphViewMode } from "./graph-view-picker.js";
+export {
+  parseSlashCommand,
+  executeSlashCommand,
+  executeUnknownSlashCommand,
+  SLASH_COMMANDS,
+} from "./slash-commands.js";
+export type { ParsedSlashCommand, UnknownSlashCommand, SlashCommandSpec } from "./slash-commands.js";
+export { HostedLlmClient, DEFAULT_AI_GATEWAY_URL } from "../llm/hosted-client.js";
+export type {
+  HostedLlmClientOptions,
+  StreamRagChatOptions,
+  AiChatQueryRequest,
+  AiChatQueryResponse,
+} from "../llm/hosted-client.js";
+export { GatewayAuthClient } from "../auth/gateway-auth-client.js";
+export type {
+  GatewayAuthClientOptions,
+  RegisterInput,
+  RegisterResult,
+} from "../auth/gateway-auth-client.js";
+export { generateOkfBundle } from "../okf/generator.js";
+export { generateMarkdownReport } from "../report/generator.js";
+export { generateFixDiffText, generateUnifiedDiff } from "../report/diff-suggestion.js";
+export type { FixDiffText } from "../report/diff-suggestion.js";
+export { executeRagRetrieval } from "../rag/index.js";
+export type { RagPipelineOptions, RagRetrievalResult } from "../rag/index.js";
+export { DEFAULT_ORCHESTRATOR_URL } from "../orchestrator/constants.js";
+// Browser-safe (plain fetch, no ast-grep/tree-sitter): lets the Tauri main
+// thread drive the orchestrator with the http plugin's fetch as fetchFn.
+export {
+  ScanOrchestratorClient,
+  OrchestratorApiError,
+  cleanCredential,
+} from "../orchestrator/client.js";
+export type { PollScanOptions } from "../orchestrator/client.js";
+export {
+  handleOrchestratorMessage,
+  isOrchestratorRequest,
+} from "../orchestrator/bridge-router.js";
+export {
+  ORCHESTRATOR_ORIGIN_ALLOWLIST,
+  validateOrchestratorUrl,
+  resolveOrchestratorUrl,
+} from "../orchestrator/url-config.js";
+export type { OrchestratorUrlValidation } from "../orchestrator/url-config.js";

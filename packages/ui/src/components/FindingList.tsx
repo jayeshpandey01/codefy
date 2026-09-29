@@ -14,7 +14,7 @@ export function FindingList({
   onSelect,
 }: FindingListProps): ReactElement {
   if (findings.length === 0) {
-    return <div className="p-4 text-xs text-[#858585]">No findings.</div>;
+    return <div className="p-4 text-xs text-vscode-muted">No findings.</div>;
   }
 
   return (

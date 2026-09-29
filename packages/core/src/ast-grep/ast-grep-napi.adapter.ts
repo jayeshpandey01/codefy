@@ -33,6 +33,40 @@ function extractMetaVariableNames(ruleYaml: string): string[] {
   return [...names];
 }
 
+interface CompiledRule {
+  readonly id: string;
+  readonly lang: Lang;
+  readonly config: NapiConfig;
+  readonly metaVariableNames: readonly string[];
+}
+
+const compiledRuleCache = new Map<string, CompiledRule>();
+
+function getCompiledRule(ruleYaml: string): CompiledRule {
+  const cached = compiledRuleCache.get(ruleYaml);
+  if (cached) return cached;
+
+  const ruleFile = parseYaml(ruleYaml) as AstGrepRuleFile;
+  const lang = resolveLang(ruleFile.language);
+  const config: NapiConfig = {
+    rule: ruleFile.rule as NapiConfig["rule"],
+    ...(ruleFile.constraints
+      ? { constraints: ruleFile.constraints as NapiConfig["constraints"] }
+      : {}),
+    ...(ruleFile.utils ? { utils: ruleFile.utils as NapiConfig["utils"] } : {}),
+  };
+  const metaVariableNames = extractMetaVariableNames(ruleYaml);
+
+  const compiled: CompiledRule = {
+    id: ruleFile.id,
+    lang,
+    config,
+    metaVariableNames,
+  };
+  compiledRuleCache.set(ruleYaml, compiled);
+  return compiled;
+}
+
 /**
  * `@ast-grep/napi`-backed implementation — runs in the VS Code extension
  * host (real Node.js). Selected via the "whoami-node" package.json#imports
@@ -45,35 +79,22 @@ export class AstGrepNapiAdapter implements IAstGrepAdapter {
   }
 
   findMatches(sourceCode: string, ruleYaml: string): AstGrepMatch[] {
-    const ruleFile = parseYaml(ruleYaml) as AstGrepRuleFile;
-    const lang = resolveLang(ruleFile.language);
-    const root = parse(lang, sourceCode);
+    const compiled = getCompiledRule(ruleYaml);
+    const root = parse(compiled.lang, sourceCode);
     const rootNode = root.root();
-
-    const config: NapiConfig = {
-      rule: ruleFile.rule as NapiConfig["rule"],
-      ...(ruleFile.constraints
-        ? { constraints: ruleFile.constraints as NapiConfig["constraints"] }
-        : {}),
-      ...(ruleFile.utils
-        ? { utils: ruleFile.utils as NapiConfig["utils"] }
-        : {}),
-    };
-
-    const matches = rootNode.findAll(config);
-    const metaVariableNames = extractMetaVariableNames(ruleYaml);
+    const matches = rootNode.findAll(compiled.config);
 
     return matches.map((match) => {
       const range = match.range();
       const captures: Record<string, string> = {};
-      for (const name of metaVariableNames) {
+      for (const name of compiled.metaVariableNames) {
         const captured = match.getMatch(name);
         if (captured) {
           captures[name] = captured.text();
         }
       }
       return {
-        ruleId: ruleFile.id,
+        ruleId: compiled.id,
         // ast-grep's Pos.line is 0-based; AstGrepMatch is documented as 1-based.
         startLine: range.start.line + 1,
         endLine: range.end.line + 1,
@@ -82,8 +103,53 @@ export class AstGrepNapiAdapter implements IAstGrepAdapter {
       };
     });
   }
+
+  findMatchesForAllRules(
+    sourceCode: string,
+    rules: readonly string[],
+  ): AstGrepMatch[] {
+    if (rules.length === 0) return [];
+
+    const compiledRules = rules.map(getCompiledRule);
+    const rootsByLang = new Map<Lang, ReturnType<typeof parse>>();
+    const allMatches: AstGrepMatch[] = [];
+
+    for (const compiled of compiledRules) {
+      let root = rootsByLang.get(compiled.lang);
+      if (!root) {
+        root = parse(compiled.lang, sourceCode);
+        rootsByLang.set(compiled.lang, root);
+      }
+
+      const rootNode = root.root();
+      const matches = rootNode.findAll(compiled.config);
+
+      for (const match of matches) {
+        const range = match.range();
+        const captures: Record<string, string> = {};
+        for (const name of compiled.metaVariableNames) {
+          const captured = match.getMatch(name);
+          if (captured) {
+            captures[name] = captured.text();
+          }
+        }
+        allMatches.push({
+          ruleId: compiled.id,
+          startLine: range.start.line + 1,
+          endLine: range.end.line + 1,
+          matchText: match.text(),
+          captures,
+        });
+      }
+    }
+
+    return allMatches;
+  }
 }
 
 export function createAstGrepAdapter(): IAstGrepAdapter {
   return new AstGrepNapiAdapter();
 }
+
+/** The Node adapter loads built-in parsers and does not need external WASM assets. */
+export function configureAstGrepGrammarBaseUrl(_baseUrl: string): void {}

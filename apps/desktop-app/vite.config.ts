@@ -16,8 +16,16 @@ const require = createRequire(import.meta.url);
 const treeSitterWasmsDir = path.dirname(
   require.resolve("tree-sitter-wasms/package.json"),
 );
-const webTreeSitterDir = path.dirname(
-  require.resolve("web-tree-sitter/package.json"),
+const astGrepWasmEntry = require.resolve("@ast-grep/wasm");
+const coreRequire = createRequire(require.resolve("@whoami/core/package.json"));
+const legacyWebTreeSitterDir = path.dirname(
+  coreRequire.resolve("web-tree-sitter-legacy/package.json"),
+);
+const javascriptGrammarDir = path.dirname(
+  require.resolve("tree-sitter-javascript/package.json"),
+);
+const typescriptGrammarDir = path.dirname(
+  require.resolve("tree-sitter-typescript/package.json"),
 );
 
 /**
@@ -51,28 +59,39 @@ export default defineConfig(async () => ({
     viteStaticCopy({
       targets: [
         {
-          src: toGlobPath(
-            treeSitterWasmsDir,
-            "out/tree-sitter-javascript.wasm",
-          ),
+          // The shared syntax checker supports more than JS/TS. Copy the
+          // complete grammar set so any supported language can be scanned in
+          // the desktop Worker rather than failing on a missing .wasm URL.
+          src: toGlobPath(treeSitterWasmsDir, "out/*.wasm"),
           dest: "grammars",
+        },
+        // Legacy web-tree-sitter 0.24 runtime paired with tree-sitter-wasms
+        // grammars for the shared syntax checker. These files are loaded from
+        // /grammars by the WASM grammar loader's locateFile callback.
+        {
+          src: toGlobPath(legacyWebTreeSitterDir, "tree-sitter.wasm"),
+          dest: "grammars",
+        },
+        // These packages ship grammars built with the modern dynamic-linking
+        // format required by web-tree-sitter 0.26 / @ast-grep/wasm. They are
+        // deliberately separate from the legacy syntax-checker grammars.
+        {
+          src: toGlobPath(
+            javascriptGrammarDir,
+            "tree-sitter-javascript.wasm",
+          ),
+          dest: "ast-grep-grammars",
         },
         {
           src: toGlobPath(
-            treeSitterWasmsDir,
-            "out/tree-sitter-typescript.wasm",
+            typescriptGrammarDir,
+            "tree-sitter-typescript.wasm",
           ),
-          dest: "grammars",
+          dest: "ast-grep-grammars",
         },
-        // web-tree-sitter's own core runtime wasm (distinct from the
-        // per-language grammar files above). Parser.init() is called with no
-        // options from packages/core's grammar-loader.wasm.ts, so it falls
-        // back to its bundler-default resolution for this file rather than
-        // an explicit locateFile pointed at this copy -- see this app's
-        // known-issues notes on why that resolution path is unverified.
         {
-          src: toGlobPath(webTreeSitterDir, "tree-sitter.wasm"),
-          dest: "grammars",
+          src: toGlobPath(typescriptGrammarDir, "tree-sitter-tsx.wasm"),
+          dest: "ast-grep-grammars",
         },
       ],
     }),
@@ -91,6 +110,26 @@ export default defineConfig(async () => ({
     },
   },
   envPrefix: ["VITE_", "TAURI_"],
+
+  // The shared core package has an optional @ast-grep/wasm peer installed
+  // against the legacy runtime for its Node build. Resolve the WASM adapter's
+  // import from this app instead, where @ast-grep/wasm is paired with the
+  // modern web-tree-sitter 0.26 runtime.
+  resolve: {
+    alias: [{ find: /^@ast-grep\/wasm$/, replacement: astGrepWasmEntry }],
+  },
+
+  // Vite's dev dependency optimizer flattens @ast-grep/wasm and
+  // web-tree-sitter into /node_modules/.vite/deps/@ast-grep_wasm.js. The
+  // latter locates its companion web-tree-sitter.wasm relative to
+  // import.meta.url; after flattening, that URL points into .vite/deps where
+  // the runtime WASM file does not exist (the request falls through to the
+  // SPA HTML and WebAssembly reports "module doesn't start with \\0asm").
+  // Serve these two packages as ESM in dev so web-tree-sitter.wasm stays next
+  // to web-tree-sitter.js. Production builds are not affected by this option.
+  optimizeDeps: {
+    exclude: ["@ast-grep/wasm", "web-tree-sitter"],
+  },
 
   // The Worker running packages/core's wasm build needs the exact same wasm
   // handling as the main bundle -- @ast-grep/wasm is only ever imported from
@@ -130,7 +169,11 @@ export default defineConfig(async () => ({
     // fixed release of the plugin (or a real need for a legacy-WebView
     // fallback) shows up later.
     target: "esnext",
-    minify: !process.env["TAURI_ENV_DEBUG"] ? "esbuild" : false,
+    // Tauri serves all bundle assets from the local filesystem / app binary,
+    // so minification is unnecessary and esbuild's minifier on large esnext
+    // chunks triggers a known parse bug in es-module-lexer 1.6.0 during
+    // Vite's build-import-analysis phase.
+    minify: false,
     sourcemap: !!process.env["TAURI_ENV_DEBUG"],
   },
 }));

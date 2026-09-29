@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type * as vscode from "vscode";
 import {
   buildWorkspaceGraph,
   createAnalysisEngine,
@@ -15,6 +16,8 @@ const SCANNABLE_EXTENSIONS = new Set([
   ".jsx",
   ".mjs",
   ".cjs",
+  ".mts",
+  ".cts",
   ".py",
   ".pyw",
   ".json",
@@ -38,6 +41,8 @@ const SCANNABLE_EXTENSIONS = new Set([
   ".toml",
   ".sh",
   ".bash",
+  ".env",
+  ".sql",
   ".kt",
   ".kts",
   ".swift",
@@ -63,7 +68,32 @@ const IGNORED_DIR_NAMES = new Set([
   ".next",
   ".nuxt",
   ".cache",
+  ".idea",
+  "build",
+  "target",
+  // Python virtualenvs / caches -- e.g. site-packages can pull in thousands
+  // of vendored files (some multi-MB JSON) that aren't the user's own code.
+  "venv",
+  "env",
+  "__pycache__",
+  "site-packages",
+  ".tox",
+  "tests",
+  "test",
+  "__tests__",
+  "fixtures",
+  "demo",
 ]);
+
+const MAX_SCANNABLE_FILES = 5000;
+
+/**
+ * Files above this size are skipped entirely (not read, parsed, or
+ * secret-scanned). Legitimate source files are essentially never this large;
+ * vendored/generated JSON (e.g. API discovery documents in Python
+ * virtualenvs) can be several MB and would otherwise dominate scan time.
+ */
+const MAX_SCANNABLE_FILE_BYTES = 1_000_000;
 
 const IGNORED_FILE_NAMES = new Set([
   "package-lock.json",
@@ -93,44 +123,87 @@ export interface WorkspaceScanResult {
 export class EngineHost {
   private readonly engine: AnalysisEngine;
 
+  constructor(private readonly output: vscode.OutputChannel) {
+    this.engine = createAnalysisEngine();
+  }
+
+  logDiagnostic(level: "info" | "warn" | "error", message: string): void {
+    this.output.appendLine(`[scan] ${level.toUpperCase()} ${message}`);
+  }
+
   /** Findings from the most recent scan, keyed by id -- backs get-trace-request. */
   private lastFindingsById = new Map<string, Finding>();
   private lastFiles: string[] = [];
   private lastFileContents = new Map<string, string>();
   private lastRootPath?: string;
 
-  constructor() {
-    this.engine = createAnalysisEngine();
-  }
-
   async scanWorkspace(
     rootPath: string,
     onProgress?: (progress: WorkspaceScanProgress) => void,
   ): Promise<WorkspaceScanResult> {
+    const startedAt = Date.now();
     const files = await collectScannableFiles(rootPath);
+    this.logDiagnostic("info", `Starting ${rootPath}: ${files.length} file(s) queued.`);
     const findings: Finding[] = [];
     this.lastFindingsById.clear();
     this.lastFiles = files;
     this.lastRootPath = rootPath;
     this.lastFileContents.clear();
 
+    const CONCURRENCY = 6;
     let scanned = 0;
-    for (const filePath of files) {
-      try {
-        const sourceCode = await fs.readFile(filePath, "utf8");
-        this.lastFileContents.set(filePath, sourceCode);
-        const result = await this.engine.scanFile(filePath, sourceCode);
-        for (const finding of result.findings) {
-          findings.push(finding);
-          this.lastFindingsById.set(finding.id, finding);
+    let currentIndex = 0;
+    let failedFiles = 0;
+    let oversizedFiles = 0;
+
+    const worker = async () => {
+      while (currentIndex < files.length) {
+        const idx = currentIndex++;
+        const filePath = files[idx];
+        if (!filePath) break;
+
+        let stage: "stat" | "read" | "analysis" = "stat";
+        try {
+          const stat = await fs.stat(filePath);
+          if (stat.size > MAX_SCANNABLE_FILE_BYTES) {
+            oversizedFiles += 1;
+            continue;
+          }
+
+          stage = "read";
+          const sourceCode = await fs.readFile(filePath, "utf8");
+          this.lastFileContents.set(filePath, sourceCode);
+          stage = "analysis";
+          const result = await this.engine.scanFile(filePath, sourceCode);
+          for (const finding of result.findings) {
+            findings.push(finding);
+            this.lastFindingsById.set(finding.id, finding);
+          }
+        } catch (error) {
+          // Continue scanning other files, but don't hide failures: a scan
+          // that silently drops every file looks like a successful empty scan.
+          failedFiles += 1;
+          this.logDiagnostic(
+            "error",
+            `${stage} failed for ${filePath}: ${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+          );
+        } finally {
+          scanned += 1;
+          onProgress?.({ scanned, total: files.length });
         }
-      } catch {
-        // Unreadable/binary/permission-denied file -- skip it rather than
-        // aborting the whole workspace scan over one bad file.
       }
-      scanned += 1;
-      onProgress?.({ scanned, total: files.length });
-    }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, files.length) },
+      () => worker(),
+    );
+    await Promise.all(workers);
+
+    this.logDiagnostic(
+      failedFiles > 0 ? "warn" : "info",
+      `Finished ${rootPath} in ${Math.round((Date.now() - startedAt) / 1000)}s: ${scanned}/${files.length} processed, ${findings.length} finding(s), ${failedFiles} failed file(s), ${oversizedFiles} oversized file(s) skipped.`,
+    );
 
     return { findings };
   }
@@ -145,6 +218,20 @@ export class EngineHost {
     if (files.length === 0 && root) {
       files = await collectScannableFiles(root);
       this.lastFiles = files;
+    }
+
+    if (this.lastFileContents.size === 0 && files.length > 0) {
+      for (const filePath of files) {
+        try {
+          const stat = await fs.stat(filePath);
+          if (stat.size > MAX_SCANNABLE_FILE_BYTES) continue;
+
+          const sourceCode = await fs.readFile(filePath, "utf8");
+          this.lastFileContents.set(filePath, sourceCode);
+        } catch {
+          // ignore unreadable/binary files
+        }
+      }
     }
 
     return buildWorkspaceGraph(
@@ -171,6 +258,7 @@ export async function collectScannableFiles(
     }
 
     for (const entry of entries) {
+      if (results.length >= MAX_SCANNABLE_FILES) return;
       if (entry.isDirectory()) {
         if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith("."))
           continue;
@@ -179,11 +267,11 @@ export async function collectScannableFiles(
         entry.isFile() &&
         !IGNORED_FILE_NAMES.has(entry.name.toLowerCase()) &&
         !entry.name.toLowerCase().endsWith(".lock") &&
-        !entry.name.endsWith(".min.js") &&
-        !entry.name.endsWith(".min.css") &&
-        !entry.name.endsWith(".map") &&
-        !entry.name.endsWith(".d.ts") &&
-        SCANNABLE_EXTENSIONS.has(path.extname(entry.name))
+        !entry.name.toLowerCase().endsWith(".min.js") &&
+        !entry.name.toLowerCase().endsWith(".min.css") &&
+        !entry.name.toLowerCase().endsWith(".map") &&
+        !entry.name.toLowerCase().endsWith(".d.ts") &&
+        SCANNABLE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
       ) {
         results.push(path.join(dir, entry.name));
       }

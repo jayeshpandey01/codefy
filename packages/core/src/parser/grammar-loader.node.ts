@@ -1,10 +1,18 @@
+import * as path from "node:path";
 import { createRequire } from "node:module";
 
-import Parser from "web-tree-sitter";
+import Parser from "web-tree-sitter-legacy";
 
 import type { SupportedLanguageId } from "./grammar-loader.types.js";
 
-const require = createRequire(import.meta.url);
+const requireTarget =
+  (typeof import.meta !== "undefined" && import.meta.url)
+    ? import.meta.url
+    : (typeof __filename !== "undefined" && path.isAbsolute(__filename))
+      ? __filename
+      : `file://${process.cwd()}/index.js`;
+
+const require = createRequire(requireTarget);
 
 const GRAMMAR_MODULE_SPECIFIERS: Record<SupportedLanguageId, string> = {
   typescript: "tree-sitter-wasms/out/tree-sitter-typescript.wasm",
