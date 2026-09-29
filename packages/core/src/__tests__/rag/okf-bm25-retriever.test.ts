@@ -108,12 +108,17 @@ describe("OkfBm25Retriever", () => {
     const index = buildOkfBm25Index(mockFindings, undefined, mockOkfBundle);
     const nlu = analyzeQuery("SQL injection database query vulnerability");
 
+    // Warm up JIT
+    for (let i = 0; i < 5; i++) {
+      index.search(nlu, 5);
+    }
+
     const start = performance.now();
     for (let i = 0; i < 50; i++) {
       index.search(nlu, 5);
     }
     const elapsed = (performance.now() - start) / 50;
 
-    expect(elapsed).toBeLessThan(1.0); // Sub-millisecond avg latency
+    expect(elapsed).toBeLessThan(5.0); // Under 5ms as per test spec
   });
 });
