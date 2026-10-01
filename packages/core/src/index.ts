@@ -40,6 +40,11 @@ export {
 export { findSourceMatch, JS_TS_SOURCE_PATTERNS } from "./taint/sources.js";
 export { getSinkRuleBinding, JS_TS_SINK_RULES } from "./taint/sinks.js";
 export type { SinkRuleBinding } from "./taint/sinks.js";
+export {
+  deduplicateFindings,
+  getFindingDeduplicationKey,
+  normalizeVulnerabilityType,
+} from "./taint/finding-dedup.js";
 
 export { buildWorkspaceGraph } from "./graph/workspace-graph.js";
 

@@ -70,7 +70,7 @@ describe("TauriBridgeClient orchestrator requests", () => {
     } as unknown as BridgeMessage);
 
     expect((tauriFetch.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
-      "X-API-Key": "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
+      "X-API-Key": "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU",
     });
   });
 

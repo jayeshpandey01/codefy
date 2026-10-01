@@ -16,7 +16,7 @@ import type {
   TaintStep,
   TargetRead,
 } from "@whoami/types";
-import { toStructuredError } from "@whoami/types";
+import { deduplicateFindings, toStructuredError } from "@whoami/types";
 
 import { ActionableErrorBanner } from "./ActionableErrorBanner.js";
 import {
@@ -502,7 +502,7 @@ export function convertScanResultToFindings(
     }
   }
 
-  return findings;
+  return deduplicateFindings(findings);
 }
 
 export function RemoteScanPanel({

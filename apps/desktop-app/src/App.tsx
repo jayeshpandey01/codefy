@@ -24,6 +24,7 @@ import type {
   UserSettings,
   WorkspaceGraph,
 } from "@whoami/types";
+import { deduplicateFindings } from "@whoami/types";
 import {
   ChatPanel,
   FloatingDetailCard,
@@ -344,7 +345,7 @@ export function App(): ReactElement {
     });
 
     const offResult = bridge.on("scan-workspace-result", (message) => {
-      const nextFindings = [...message.findings];
+      const nextFindings = deduplicateFindings(message.findings);
       setScanCoverage(message.coverage ?? null);
       setFindings(nextFindings);
       if (nextFindings.length > 0) {
@@ -730,15 +731,7 @@ export function App(): ReactElement {
         });
 
         if (allNewFindings.length > 0) {
-          setFindings((prev) => {
-            const merged = [...prev];
-            for (const f of allNewFindings) {
-              if (!merged.some((m) => m.id === f.id)) {
-                merged.push(f);
-              }
-            }
-            return merged;
-          });
+          setFindings((prev) => deduplicateFindings([...prev, ...allNewFindings]));
           setSelectedFinding(allNewFindings[0]);
           setShowFloatingDetail(true);
           openTab("graph");
@@ -840,9 +833,10 @@ export function App(): ReactElement {
       try {
         const sessionData = await getScanSessionWithFindings(sessionId);
         if (sessionData) {
-          setFindings([...sessionData.findings]);
-          if (sessionData.findings.length > 0) {
-            setSelectedFinding(sessionData.findings[0]);
+          const unique = deduplicateFindings(sessionData.findings);
+          setFindings(unique);
+          if (unique.length > 0) {
+            setSelectedFinding(unique[0]);
             setShowFloatingDetail(true);
           } else {
             setSelectedFinding(undefined);

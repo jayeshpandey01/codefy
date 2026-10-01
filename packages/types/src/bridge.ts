@@ -399,6 +399,17 @@ export type BridgeMessage =
       readonly data: unknown;
     })
   | (BaseMessage & {
+      readonly type: "save-report-file-request";
+      readonly fileName: string;
+      readonly content: string;
+      readonly encoding?: "utf-8" | "base64";
+      readonly mimeType?: string;
+    })
+  | (BaseMessage & {
+      readonly type: "save-report-file-result";
+      readonly savedPath: string | null;
+    })
+  | (BaseMessage & {
       readonly type: "error";
       readonly message: string;
       readonly code?: string;

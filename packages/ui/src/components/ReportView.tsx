@@ -15,6 +15,13 @@ export interface ReportViewProps {
    * so the user's original choice stays visible before they confirm. */
   readonly highlightFormat?: "md" | "pdf";
   readonly onClose: () => void;
+  /** Host-backed file save handler (used in VS Code webview / Tauri where browser anchor download is restricted) */
+  readonly onSaveFile?: (
+    filename: string,
+    content: string,
+    encoding: "utf-8" | "base64",
+    mimeType: string,
+  ) => Promise<boolean | void> | void;
 }
 
 function downloadTextFile(filename: string, mimeType: string, content: string): void {
@@ -381,12 +388,36 @@ export function ReportView({
   isLoading,
   highlightFormat,
   onClose,
+  onSaveFile,
 }: ReportViewProps): React.ReactElement | null {
   const structuredHtml = useMemo(() => {
     if (!report) return "";
     const rawHtml = marked.parse(report.markdown, { async: false }) as string;
     return structureReportHtml(rawHtml);
   }, [report]);
+
+  const handleDownloadMd = async () => {
+    if (!report) return;
+    const filename = `whoami-report-${report.sessionId}.md`;
+    if (onSaveFile) {
+      await onSaveFile(filename, report.markdown, "utf-8", "text/markdown");
+    } else {
+      downloadTextFile(filename, "text/markdown", report.markdown);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!report) return;
+    const filename = `whoami-report-${report.sessionId}.pdf`;
+    if (onSaveFile) {
+      const doc = buildReportPdf(report);
+      const dataUri = doc.output("datauristring");
+      const base64Pdf = dataUri.split(",")[1] || "";
+      await onSaveFile(filename, base64Pdf, "base64", "application/pdf");
+    } else {
+      downloadAsPdf(report);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -416,13 +447,7 @@ export function ReportView({
               <>
                 <button
                   type="button"
-                  onClick={() =>
-                    downloadTextFile(
-                      `whoami-report-${report.sessionId}.md`,
-                      "text/markdown",
-                      report.markdown,
-                    )
-                  }
+                  onClick={handleDownloadMd}
                   className={`flex items-center gap-1.5 rounded border border-vscode-focus/40 bg-vscode-focus/15 hover:bg-vscode-focus/25 px-2.5 py-1 text-xs text-severity-medium transition cursor-pointer ${
                     highlightFormat === "md" ? "ring-2 ring-severity-medium ring-offset-1 ring-offset-vscode-bg" : ""
                   }`}
@@ -432,7 +457,7 @@ export function ReportView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => downloadAsPdf(report)}
+                  onClick={handleDownloadPdf}
                   className={`flex items-center gap-1.5 rounded border border-vscode-border bg-vscode-card hover:bg-vscode-card-hover px-2.5 py-1 text-xs text-vscode-fg transition cursor-pointer ${
                     highlightFormat === "pdf" ? "ring-2 ring-[#3FB950] ring-offset-1 ring-offset-vscode-bg" : ""
                   }`}

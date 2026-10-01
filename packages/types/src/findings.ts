@@ -44,3 +44,5 @@ export interface Finding {
   /** External documentation, CWE, or advisory link */
   readonly link?: string;
 }
+
+export * from "./finding-dedup.js";

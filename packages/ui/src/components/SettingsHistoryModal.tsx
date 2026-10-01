@@ -50,6 +50,12 @@ export interface SettingsHistoryModalProps {
   readonly onDeleteSession?: (sessionId: string) => Promise<void> | void;
   readonly onClearAllHistory?: () => Promise<void> | void;
   readonly onGenerateReport?: (sessionId: string) => Promise<GeneratedReport>;
+  readonly onSaveFile?: (
+    filename: string,
+    content: string,
+    encoding: "utf-8" | "base64",
+    mimeType: string,
+  ) => Promise<boolean | void> | void;
   readonly tips?: readonly SecurityTip[];
 
   // Enhanced Account actions
@@ -149,6 +155,7 @@ export function SettingsHistoryModal({
   onDeleteSession,
   onClearAllHistory,
   onGenerateReport,
+  onSaveFile,
   tips = DEFAULT_TIPS,
   onRequestPasswordReset,
   onVerifyResetOtp,
@@ -549,16 +556,19 @@ export function SettingsHistoryModal({
     setExcludedDirs(excludedDirs.filter((d) => d !== dirToRemove));
   };
 
-  const handleExportHistoryJson = () => {
+  const handleExportHistoryJson = async () => {
+    const filename = `whoami-scan-history-${new Date().toISOString().slice(0, 10)}.json`;
+    const jsonStr = JSON.stringify(scanSessions, null, 2);
+    if (onSaveFile) {
+      const ok = await onSaveFile(filename, jsonStr, "utf-8", "application/json");
+      if (ok) return;
+    }
     const dataStr =
       "data:text/json;charset=utf-8," +
-      encodeURIComponent(JSON.stringify(scanSessions, null, 2));
+      encodeURIComponent(jsonStr);
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute(
-      "download",
-      `whoami-scan-history-${new Date().toISOString().slice(0, 10)}.json`,
-    );
+    downloadAnchor.setAttribute("download", filename);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -1787,6 +1797,7 @@ export function SettingsHistoryModal({
         isOpen={reportViewSessionId !== null}
         report={reportViewData}
         isLoading={isGeneratingReport}
+        onSaveFile={onSaveFile}
         onClose={handleCloseReportView}
       />
     </>

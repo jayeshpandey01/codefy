@@ -4,6 +4,7 @@ import type * as vscode from "vscode";
 import {
   buildWorkspaceGraph,
   createAnalysisEngine,
+  deduplicateFindings,
   type AnalysisEngine,
 } from "@whoami/core/node";
 import type { Finding, RuleToggleConfig, ScanCoverage, WorkspaceGraph } from "@whoami/types";
@@ -231,13 +232,19 @@ export class EngineHost {
     );
     await Promise.all(workers);
 
+    const uniqueFindings = deduplicateFindings(findings);
+    this.lastFindingsById.clear();
+    for (const f of uniqueFindings) {
+      this.lastFindingsById.set(f.id, f);
+    }
+
     this.logDiagnostic(
       failedFiles > 0 ? "warn" : "info",
-      `Finished ${rootPath} in ${Math.round((Date.now() - startedAt) / 1000)}s: ${scanned}/${files.length} processed, ${findings.length} finding(s), ${failedFiles} failed file(s), ${oversizedFiles} oversized file(s) skipped.`,
+      `Finished ${rootPath} in ${Math.round((Date.now() - startedAt) / 1000)}s: ${scanned}/${files.length} processed, ${uniqueFindings.length} finding(s), ${failedFiles} failed file(s), ${oversizedFiles} oversized file(s) skipped.`,
     );
 
     return {
-      findings,
+      findings: uniqueFindings,
       coverage: {
         filesDiscovered: collectionStats.filesSeen,
         filesScanned: successfullyScanned,

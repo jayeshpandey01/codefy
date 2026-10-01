@@ -17,6 +17,7 @@ import { buildCandidatePaths } from "./taint/propagate.js";
 import { detectPythonSecurityFindings } from "./taint/python-detector.js";
 import { resolveSanitizerStatus } from "./taint/sanitizer-filter.js";
 import { getSinkRuleBinding } from "./taint/sinks.js";
+import { deduplicateFindings } from "./taint/finding-dedup.js";
 
 export interface CreateAnalysisEngineOptions {
   /** Defaults to OpenRouterTriageProvider when OPENROUTER_API_KEY is set, else DeterministicOnlyProvider. */
@@ -254,6 +255,8 @@ export function createAnalysisEngine(
 
       const totalDurationMs = Date.now() - scanStartTime;
 
+      const uniqueFindings = deduplicateFindings(findings);
+
       const metrics: EngineScanMetrics = {
         scanId,
         filePath,
@@ -265,18 +268,18 @@ export function createAnalysisEngine(
         secretScanDurationMs,
         syntaxCheckDurationMs,
         totalDurationMs,
-        findingsCount: findings.length,
+        findingsCount: uniqueFindings.length,
         secretsCount: secrets.length,
         syntaxErrorsCount,
       };
 
       scanLogger?.info("File analysis scan completed", {
-        findingsCount: findings.length,
+        findingsCount: uniqueFindings.length,
         secretsCount: secrets.length,
         totalDurationMs,
       });
 
-      return { findings, secrets, metrics };
+      return { findings: uniqueFindings, secrets, metrics };
     },
   };
 }

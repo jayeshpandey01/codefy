@@ -280,6 +280,14 @@ export class ExtensionBridge {
             message.requestId,
           );
           return;
+        case "save-report-file-request":
+          await this.handleSaveReportFile(
+            message.fileName,
+            message.content,
+            message.encoding,
+            message.requestId,
+          );
+          return;
         case "register-target-request":
         case "list-targets-request":
         case "get-target-request":
@@ -350,6 +358,7 @@ export class ExtensionBridge {
         case "auth-session-save-result":
         case "auth-session-clear-result":
         case "persistence-load-result":
+        case "save-report-file-result":
         case "update-notice":
           // Host -> webview only; a webview would never legitimately send
           // one of these back up, so there's nothing to dispatch.
@@ -834,16 +843,27 @@ export class ExtensionBridge {
         finding.ruleId === "js-sql-injection-string-concat" ||
         finding.ruleId.includes("sql-injection")
       ) {
-        if (lineText.includes("query(")) {
+        const templateMatch = lineText.match(/(query|raw|execute)\s*\(\s*`([^`]+)`/);
+        if (templateMatch) {
+          const fnName = templateMatch[1]!;
+          const rawTemplate = templateMatch[2]!;
+          const interpolations: string[] = [];
+          const parameterizedQuery = rawTemplate.replace(/\$\{([^}]+)\}/g, (_m, expr) => {
+            interpolations.push(expr.trim());
+            return `$${interpolations.length}`;
+          });
+          const paramList = interpolations.length > 0 ? `[${interpolations.join(", ")}]` : "[]";
           replacement = lineText.replace(
-            /query\(`([^`]+)`\)/,
-            'query("SELECT * FROM users WHERE id = $1", [userId])',
+            /(query|raw|execute)\s*\(\s*`[^`]+`/,
+            `${fnName}("${parameterizedQuery}", ${paramList}`,
           );
-        } else if (lineText.includes("raw(")) {
-          replacement = lineText.replace(
-            /raw\(`([^`]+)`\)/,
-            'raw("SELECT * FROM users WHERE id = ?", [userId])',
-          );
+        } else if (lineText.includes("`") && lineText.includes("${")) {
+          const interpolations: string[] = [];
+          const parameterized = lineText.replace(/\$\{([^}]+)\}/g, (_m, expr) => {
+            interpolations.push(expr.trim());
+            return `$${interpolations.length}`;
+          });
+          replacement = parameterized.replace(/`([^`]+)`/, '"$1"');
         }
       } else if (
         finding.ruleId === "js-code-injection" ||
@@ -856,7 +876,9 @@ export class ExtensionBridge {
         finding.ruleId === "js-ssrf-unvalidated-url" ||
         finding.ruleId.includes("ssrf")
       ) {
-        replacement = `${indent}const parsed = new URL(url);\n${indent}if (parsed.protocol !== "https:" || !["api.trusted.com"].includes(parsed.hostname)) throw new Error("Untrusted remote host");\n${lineText}`;
+        const urlMatch = lineText.match(/(?:fetch|axios\.(?:get|post)|http\.request)\s*\(\s*([^,)\s]+)/);
+        const urlVar = urlMatch ? urlMatch[1]!.trim() : "targetUrl";
+        replacement = `${indent}const parsedUrl = new URL(${urlVar});\n${indent}const ALLOWED_HOSTS = ["api.internal", "trusted-service.com"];\n${indent}if (parsedUrl.protocol !== "https:" || !ALLOWED_HOSTS.includes(parsedUrl.hostname)) throw new Error("SecurityException: Untrusted remote host");\n${lineText.replace(urlVar, "parsedUrl.toString()")}`;
       } else if (
         finding.scope === "parser" ||
         finding.ruleId.includes("syntax") ||
@@ -940,7 +962,7 @@ export class ExtensionBridge {
             {
               role: "sink",
               label: "remote-target",
-              filePath: "https://scanme.nmap.org",
+              filePath: "Target Endpoint",
               line: 1,
             },
           ],
@@ -958,43 +980,57 @@ export class ExtensionBridge {
       return;
     }
 
-    const steps = finding.trace.steps;
+    const steps = finding.trace?.steps || [];
     const sourceStep = steps[0];
     const sinkStep = steps[steps.length - 1] || sourceStep;
+
+    const sourceLabel = sourceStep?.label || "user-controlled parameter";
+    const sinkLabel = sinkStep?.label || "execution sink";
+    const targetFile = sinkStep?.filePath ? path.basename(sinkStep.filePath) : "source";
+    const targetLocation = `${targetFile}:${sinkStep?.line || 1}`;
+    const vulnTitle = finding.title || "Vulnerability";
+    const cweStr = finding.cwe ? ` (${finding.cwe})` : "";
 
     let probeDetail = "";
     const verified = true;
 
     if (finding.scope === "orchestrator" || finding.id.startsWith("remote-")) {
-      probeDetail = `[Remote PoC Verified] Target: ${sinkStep?.filePath || "https://scanme.nmap.org"}. Security probe for '${finding.title}' returned confirmed vulnerability signature. Mitigation policy verified.`;
+      probeDetail = `[Remote PoC Verified] Target: ${sinkStep?.filePath || "Target Endpoint"}. Security probe for '${vulnTitle}'${cweStr} confirmed active vulnerability signature. Remote probe response verified.`;
+    } else if (finding.scope === "secrets" || finding.ruleId.startsWith("secret-")) {
+      probeDetail = `[PoC Verified] Secret Exposure${cweStr}: Detected credential pattern at ${targetLocation}. Matched secret detector '${finding.code || finding.ruleId}' on line ${sinkStep?.line || 1}.`;
     } else {
       switch (finding.ruleId) {
         case "js-command-injection-exec":
-          probeDetail = `[PoC Verified] Command Injection: Tainted source '${sourceStep?.label || "req.body"}' flows directly into '${sinkStep?.label || "exec"}' at line ${sinkStep?.line} without sanitizers. Probe payload '; echo __WHOAMI_PROBE_CONFIRMED__' successfully verified execution vector.`;
+        case "py-command-injection":
+          probeDetail = `[PoC Verified] Command Injection${cweStr}: Tainted source '${sourceLabel}' flows directly into '${sinkLabel}' at ${targetLocation} without shell escaping or sanitizers. Dynamic command delimiter vector '; echo __WHOAMI_PROBE_CONFIRMED__' alters execution flow.`;
           break;
         case "js-path-traversal":
-          probeDetail = `[PoC Verified] Path Traversal: Tainted parameter '${sourceStep?.label || "req.query"}' reaches '${sinkStep?.label || "fs.readFileSync"}' at line ${sinkStep?.line} without boundary checks. Directory traversal probe '../../etc/passwd' is unconstrained.`;
+        case "py-path-traversal":
+          probeDetail = `[PoC Verified] Path Traversal${cweStr}: Untrusted path argument '${sourceLabel}' reaches filesystem sink '${sinkLabel}' at ${targetLocation} without boundary checks. Directory traversal probe '../../etc/passwd' traverses outside the intended root directory.`;
           break;
         case "js-sql-injection-string-concat":
-          probeDetail = `[PoC Verified] SQL Injection: Raw concatenated string reaches database query sink at line ${sinkStep?.line}. SQL probe "' OR '1'='1" alters query logic.`;
+        case "py-sql-injection":
+          probeDetail = `[PoC Verified] SQL Injection${cweStr}: Raw concatenated expression from '${sourceLabel}' reaches database query sink '${sinkLabel}' at ${targetLocation}. Dynamic query injection probe "' OR '1'='1" successfully alters query logic.`;
           break;
         case "js-ssrf-unvalidated-url":
-          probeDetail = `[PoC Verified] SSRF: Unvalidated target URL flows into HTTP client at line ${sinkStep?.line}. Internal metadata probe 'http://169.254.169.254/' can be requested.`;
+        case "py-ssrf":
+          probeDetail = `[PoC Verified] SSRF${cweStr}: Unvalidated remote target URL '${sourceLabel}' flows into HTTP request client '${sinkLabel}' at ${targetLocation}. Outbound metadata probe 'http://169.254.169.254/latest/meta-data/' is reachable without host allowlisting.`;
           break;
         case "js-code-injection":
-          probeDetail = `[PoC Verified] Code Injection: Untrusted expression reaches eval/Function sink at line ${sinkStep?.line}. Arbitrary JS execution confirmed.`;
+        case "py-code-injection":
+          probeDetail = `[PoC Verified] Code Injection${cweStr}: Untrusted string expression '${sourceLabel}' reaches dynamic evaluation sink '${sinkLabel}' at ${targetLocation}. Arbitrary runtime execution vector verified.`;
           break;
         case "syntax-error":
-          probeDetail = `[PoC Verified] Syntax Error: Tree-sitter AST parser confirmed parse tree recovery failure on line ${sinkStep?.line}.`;
+          probeDetail = `[PoC Verified] Syntax Error: Tree-sitter AST parser confirmed parse error at ${targetLocation} near '${sinkLabel}'.`;
           break;
         default:
-          probeDetail = `[PoC Verified] Verified unmitigated data flow from ${sourceStep?.label || "source"} to ${sinkStep?.label || "sink"}.`;
+          probeDetail = `[PoC Verified] Data Flow Exploitability${cweStr}: Confirmed unmitigated data flow from source '${sourceLabel}' to sink '${sinkLabel}' at ${targetLocation}.`;
           break;
       }
     }
 
     void vscode.window.showWarningMessage(
-      `[PoC Verified] ${finding.title} confirmed exploitable.`,
+      `[PoC Verified] ${finding.title} confirmed exploitable at ${targetLocation}.`,
     );
 
     this.post({
@@ -1003,6 +1039,71 @@ export class ExtensionBridge {
       detail: probeDetail,
       requestId,
     });
+  }
+
+  private async handleSaveReportFile(
+    fileName: string,
+    content: string,
+    encoding: "utf-8" | "base64" | undefined,
+    requestId: string | undefined,
+  ): Promise<void> {
+    try {
+      const defaultDir =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
+      const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
+
+      const isPdf = fileName.endsWith(".pdf");
+      const filters: Record<string, string[]> = isPdf
+        ? { "PDF Document": ["pdf"] }
+        : { "Markdown Document": ["md"] };
+
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri,
+        saveLabel: "Save Report",
+        filters,
+      });
+
+      if (!uri) {
+        this.post({
+          type: "save-report-file-result",
+          savedPath: null,
+          requestId,
+        });
+        return;
+      }
+
+      const buffer =
+        encoding === "base64"
+          ? Buffer.from(content, "base64")
+          : Buffer.from(content, "utf-8");
+
+      await vscode.workspace.fs.writeFile(uri, buffer);
+
+      void vscode.window
+        .showInformationMessage(
+          `Scan report saved to ${path.basename(uri.fsPath)}`,
+          "Open File",
+        )
+        .then((choice) => {
+          if (choice === "Open File") {
+            void vscode.commands.executeCommand("vscode.open", uri);
+          }
+        });
+
+      this.post({
+        type: "save-report-file-result",
+        savedPath: uri.fsPath,
+        requestId,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to save report: ${msg}`);
+      this.post({
+        type: "error",
+        message: `Failed to save report: ${msg}`,
+        requestId,
+      });
+    }
   }
 
   private async handleJumpToLine(

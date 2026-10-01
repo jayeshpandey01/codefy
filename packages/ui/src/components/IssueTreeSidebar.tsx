@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import type { Finding } from "@whoami/types";
+import { type Finding, deduplicateFindings } from "@whoami/types";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -256,7 +256,7 @@ function buildGroups(
 }
 
 export function IssueTreeSidebar({
-  findings,
+  findings: rawFindings,
   selectedFindingId,
   onSelectFinding,
   onRefreshScan,
@@ -274,6 +274,7 @@ export function IssueTreeSidebar({
   onOpenHistory,
   className = "",
 }: IssueTreeSidebarProps): React.ReactElement {
+  const findings = useMemo(() => deduplicateFindings(rawFindings), [rawFindings]);
   const [sectionFilter, setSectionFilter] = useState<IssueSectionFilter>(activeScanMode);
   const [groupingMode, setGroupingMode] = useState<IssueGroupingMode>("file");
   const [isGroupingDropdownOpen, setIsGroupingDropdownOpen] = useState(false);

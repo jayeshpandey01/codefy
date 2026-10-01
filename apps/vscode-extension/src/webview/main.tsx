@@ -31,7 +31,7 @@ import type {
   WorkspaceGraph,
   WorkspaceGraphNode,
 } from "@whoami/types";
-import { toStructuredError } from "@whoami/types";
+import { deduplicateFindings, toStructuredError } from "@whoami/types";
 import {
   ActionableErrorBanner,
   BridgeProvider,
@@ -200,7 +200,6 @@ function App(): ReactElement {
   const [selectedFolder, setSelectedFolder] = useState<string>("");
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
-  const initialScanStartedRef = useRef(false);
   const scanModeRef = useRef(scanMode);
   scanModeRef.current = scanMode;
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
@@ -335,7 +334,7 @@ function App(): ReactElement {
     });
 
     const offResult = bridge.on("scan-workspace-result", (message) => {
-      const nextFindings = [...message.findings];
+      const nextFindings = deduplicateFindings(message.findings);
       setFindings(nextFindings);
       if (nextFindings.length > 0) {
         setSelectedFinding(nextFindings[0]);
@@ -391,18 +390,6 @@ function App(): ReactElement {
     };
   }, []);
 
-  useEffect(() => {
-    if (!userSettings || initialScanStartedRef.current) return;
-    initialScanStartedRef.current = true;
-    bridge.send({
-      type: "scan-workspace-request",
-      rules: userSettings.rules,
-      customExcludedDirs: userSettings.customExcludedDirs,
-      maxScannableFiles: userSettings.maxScannableFiles,
-      requestId: `vscode-scan-${Date.now()}`,
-    });
-    setStatus("scanning");
-  }, [userSettings?.rules]);
 
   const openTab = useCallback((tabId: MainTabId) => {
     setOpenTabs((prev) => (prev.includes(tabId) ? prev : [...prev, tabId]));
@@ -414,9 +401,10 @@ function App(): ReactElement {
       try {
         const sessionData = await getScanSessionWithFindings(sessionId);
         if (sessionData) {
-          setFindings([...sessionData.findings]);
-          if (sessionData.findings.length > 0) {
-            setSelectedFinding(sessionData.findings[0]);
+          const unique = deduplicateFindings(sessionData.findings);
+          setFindings(unique);
+          if (unique.length > 0) {
+            setSelectedFinding(unique[0]);
             setShowFloatingDetail(true);
           } else {
             setSelectedFinding(undefined);
@@ -480,6 +468,34 @@ function App(): ReactElement {
       setIsCurrentReportOpen(true);
     },
     [findings, selectedFolder, scanMode],
+  );
+
+  const handleSaveReportFile = useCallback(
+    async (
+      fileName: string,
+      content: string,
+      encoding: "utf-8" | "base64",
+      mimeType: string,
+    ): Promise<boolean> => {
+      try {
+        const res = await bridge.request<
+          Extract<BridgeMessage, { type: "save-report-file-request" }>,
+          Extract<BridgeMessage, { type: "save-report-file-result" }>
+        >({
+          type: "save-report-file-request",
+          fileName,
+          content,
+          encoding,
+          mimeType,
+          requestId: `save-report-${Date.now()}`,
+        });
+        return Boolean(res.savedPath);
+      } catch (err) {
+        console.warn("[WhoAmI] Failed to save report file via bridge:", err);
+        return false;
+      }
+    },
+    [],
   );
 
   const handleClearAllHistory = useCallback(async () => {
@@ -731,26 +747,6 @@ function App(): ReactElement {
     [activeTab],
   );
 
-  const handleBrowseFolder = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await bridge.request<
-        Extract<BridgeMessage, { type: "pick-folder-request" }>,
-        Extract<BridgeMessage, { type: "pick-folder-result" }>
-      >({
-        type: "pick-folder-request",
-        defaultPath: selectedFolder || undefined,
-        requestId: `pick-folder-${Date.now()}`,
-      });
-      if (res.folderPath) {
-        setSelectedFolder(res.folderPath);
-      }
-      return res.folderPath;
-    } catch (err) {
-      console.warn("[WhoAmI] Failed to browse folder via bridge:", err);
-      return null;
-    }
-  }, [selectedFolder]);
-
   const handleScanWorkspace = useCallback(
     (folderPath?: string) => {
       const targetPath = folderPath ?? selectedFolder;
@@ -772,6 +768,27 @@ function App(): ReactElement {
     },
     [selectedFolder, userSettings?.rules],
   );
+
+  const handleBrowseFolder = useCallback(async (): Promise<string | null> => {
+    try {
+      const res = await bridge.request<
+        Extract<BridgeMessage, { type: "pick-folder-request" }>,
+        Extract<BridgeMessage, { type: "pick-folder-result" }>
+      >({
+        type: "pick-folder-request",
+        defaultPath: selectedFolder || undefined,
+        requestId: `pick-folder-${Date.now()}`,
+      });
+      if (res.folderPath) {
+        setSelectedFolder(res.folderPath);
+        handleScanWorkspace(res.folderPath);
+      }
+      return res.folderPath;
+    } catch (err) {
+      console.warn("[WhoAmI] Failed to browse folder via bridge:", err);
+      return null;
+    }
+  }, [selectedFolder, handleScanWorkspace]);
 
   const handleSelectFinding = useCallback(
     (finding: Finding) => {
@@ -1132,15 +1149,7 @@ function App(): ReactElement {
         });
 
         if (allNewFindings.length > 0) {
-          setFindings((prev) => {
-            const merged = [...prev];
-            for (const f of allNewFindings) {
-              if (!merged.some((m) => m.id === f.id)) {
-                merged.push(f);
-              }
-            }
-            return merged;
-          });
+          setFindings((prev) => deduplicateFindings([...prev, ...allNewFindings]));
           setSelectedFinding(allNewFindings[0]);
           setShowFloatingDetail(true);
           openTab("graph");
@@ -1414,7 +1423,7 @@ function App(): ReactElement {
                     <div className="flex h-full items-center justify-center p-4 text-xs text-[#858585]">
                       {status === "scanning" || isOrchestratorScanning
                         ? "Scanning and tracing data flows…"
-                        : "No vulnerabilities detected. Run a scan from the header to analyze."}
+                        : "No vulnerabilities detected. Select a folder to start scanning."}
                     </div>
                   )}
 
@@ -1575,6 +1584,7 @@ function App(): ReactElement {
         onDeleteSession={handleDeleteSession}
         onClearAllHistory={handleClearAllHistory}
         onGenerateReport={handleGenerateReport}
+        onSaveFile={handleSaveReportFile}
         onRequestPasswordReset={handleForgotPassword}
         onVerifyResetOtp={handleVerifyResetOtp}
         onResetPassword={handleResetPassword}
@@ -1590,6 +1600,7 @@ function App(): ReactElement {
         isOpen={isCurrentReportOpen}
         report={currentReport}
         highlightFormat={currentReportFormat}
+        onSaveFile={handleSaveReportFile}
         onClose={() => setIsCurrentReportOpen(false)}
       />
     </div>
