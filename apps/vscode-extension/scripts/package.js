@@ -27,15 +27,19 @@ const repoRoot = path.resolve(appRoot, "..", "..");
 const target = process.argv[2] && process.argv[2] !== "universal" ? process.argv[2] : null;
 
 function run(command, args, options) {
-  console.log(`[package] $ ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, {
+  const binary =
+    process.platform === "win32" && (command === "pnpm" || command === "npx")
+      ? `${command}.cmd`
+      : command;
+  console.log(`[package] $ ${binary} ${args.join(" ")}`);
+  const result = spawnSync(binary, args, {
     stdio: "inherit",
     shell: true,
     ...options,
   });
   if (result.status !== 0) {
     process.exitCode = result.status ?? 1;
-    throw new Error(`Command failed: ${command} ${args.join(" ")}`);
+    throw new Error(`Command failed: ${binary} ${args.join(" ")}`);
   }
 }
 

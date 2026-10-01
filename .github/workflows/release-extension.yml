@@ -71,11 +71,19 @@ jobs:
           path: vsix
           merge-multiple: true
 
-      - run: npx -y @vscode/vsce publish --packagePath vsix/*.vsix
+      - run: |
+          for f in vsix/*.vsix; do
+            echo "Publishing $f to VS Code Marketplace..."
+            npx -y @vscode/vsce publish --packagePath "$f"
+          done
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
-      - run: npx -y ovsx publish --packagePath vsix/*.vsix
+      - run: |
+          for f in vsix/*.vsix; do
+            echo "Publishing $f to Open VSX..."
+            npx -y ovsx publish --packagePath "$f"
+          done
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
