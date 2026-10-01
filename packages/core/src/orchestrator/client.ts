@@ -257,10 +257,13 @@ export class ScanOrchestratorClient {
 
     // Attach credentials according to endpoint role requirements
     if (authType === "admin") {
-      const key = this.adminApiKey;
+      const key = this.adminApiKey || this.apiKey;
       if (key && this.authMode === "api_key") {
         headers["X-API-Key"] = key;
-      } else if (this.jwtToken) {
+        if (this.adminApiKey) {
+          headers["X-Admin-API-Key"] = this.adminApiKey;
+        }
+      } else if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
       } else if (key) {
         headers["Authorization"] = `Bearer ${key}`;
@@ -281,7 +284,10 @@ export class ScanOrchestratorClient {
       const key = this.apiKey || this.adminApiKey;
       if (key && this.authMode === "api_key") {
         headers["X-API-Key"] = key;
-      } else if (this.jwtToken) {
+        if (this.adminApiKey) {
+          headers["X-Admin-API-Key"] = this.adminApiKey;
+        }
+      } else if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
       } else if (key) {
         headers["Authorization"] = `Bearer ${key}`;

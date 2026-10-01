@@ -166,11 +166,17 @@ export class TauriBridgeClient implements BridgeClient {
    */
   private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
     const session = await getAuthSession();
+    const jwtToken =
+      session?.accessToken && session.accessToken !== "offline-local-session"
+        ? session.accessToken
+        : undefined;
+
     return new ScanOrchestratorClient({
       baseUrl: "https://axiom-xjkc.onrender.com",
       apiKey: "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
       adminApiKey: "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU",
-      jwtToken: session?.accessToken,
+      authMode: "api_key",
+      jwtToken,
       fetchFn: tauriFetch as typeof fetch,
     });
   }

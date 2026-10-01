@@ -139,29 +139,42 @@ export class ExtensionBridge {
   private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
     const env = loadEnvFile();
     const config = vscode.workspace.getConfiguration("whoami");
+    const clean = (val?: string | null): string | undefined => {
+      if (!val) return undefined;
+      const t = val.trim().replace(/^["']|["']$/g, "").trim();
+      return t && t !== "undefined" && t !== "null" ? t : undefined;
+    };
+
     const baseUrl =
-      config.get<string>("orchestrator.url") ||
-      process.env.ORCHESTRATOR_URL ||
-      env.ORCHESTRATOR_URL ||
+      clean(config.get<string>("orchestrator.url")) ||
+      clean(process.env.ORCHESTRATOR_URL) ||
+      clean(env.ORCHESTRATOR_URL) ||
       DEFAULT_ORCHESTRATOR_URL;
+
     const apiKey =
-      config.get<string>("orchestrator.apiKey") ||
-      process.env.API_KEY ||
-      env.API_KEY ||
+      clean(config.get<string>("orchestrator.apiKey")) ||
+      clean(process.env.API_KEY) ||
+      clean(env.API_KEY) ||
       "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
+
     const adminApiKey =
-      config.get<string>("orchestrator.adminApiKey") ||
-      process.env.ADMIN_API_KEY ||
-      env.ADMIN_API_KEY ||
+      clean(config.get<string>("orchestrator.adminApiKey")) ||
+      clean(process.env.ADMIN_API_KEY) ||
+      clean(env.ADMIN_API_KEY) ||
       "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
 
     const session = await this.readAuthSession();
+    const jwtToken =
+      session?.accessToken && session.accessToken !== "offline-local-session"
+        ? session.accessToken
+        : undefined;
 
     return new ScanOrchestratorClient({
       baseUrl,
-      apiKey: apiKey || undefined,
-      adminApiKey: adminApiKey || undefined,
-      jwtToken: session?.accessToken,
+      apiKey,
+      adminApiKey,
+      authMode: "api_key",
+      jwtToken,
     });
   }
 
