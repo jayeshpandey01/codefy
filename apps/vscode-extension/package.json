@@ -7,7 +7,7 @@
     "url": "https://github.com/jayeshpandey01/codefy.git",
     "directory": "apps/vscode-extension"
   },
-  "publisher": "whoami",
+  "publisher": "Mickey20",
   "displayName": "WhoAmI",
   "description": "Real-time taint-flow finding detection, visual attack paths, and local runtime verification inside VS Code.",
   "icon": "icon.png",
