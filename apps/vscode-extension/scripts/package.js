@@ -53,13 +53,13 @@ if (fs.existsSync(deployDir)) {
   fs.rmSync(deployDir, { recursive: true, force: true });
 }
 
-console.log(`[package] deploying codefy -> ${deployDir}`);
+console.log(`[package] deploying codefy-ai -> ${deployDir}`);
 run(
   "pnpm",
   [
     "deploy",
     "--filter",
-    "codefy",
+    "codefy-ai",
     "--prod",
     "--legacy",
     deployDirRelative,
