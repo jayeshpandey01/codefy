@@ -19,6 +19,8 @@
   },
   "git.autorefresh": true,
   "git.autoStash": false,
-  "files.autoSave": "off"
+  "files.autoSave": "off",
+  "files.hotExit": "off",
+  "workbench.localHistory.enabled": false
 }
 
