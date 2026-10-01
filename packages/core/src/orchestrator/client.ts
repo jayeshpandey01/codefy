@@ -21,10 +21,14 @@ import {
   VercelError,
 } from "@whoami/types";
 import { Logger } from "../logging/logger.js";
-import { DEFAULT_ORCHESTRATOR_URL } from "./constants.js";
+import {
+  DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_OPERATOR_API_KEY,
+  DEFAULT_ADMIN_API_KEY,
+} from "./constants.js";
 import { generateControllerHmacHeaders } from "./hmac.js";
 
-export { DEFAULT_ORCHESTRATOR_URL };
+export { DEFAULT_ORCHESTRATOR_URL, DEFAULT_OPERATOR_API_KEY, DEFAULT_ADMIN_API_KEY };
 
 export interface PollScanOptions {
   /** Initial poll interval; polling backs off from here while nothing changes. */

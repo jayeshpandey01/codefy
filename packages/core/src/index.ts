@@ -64,6 +64,8 @@ export {
   ScanOrchestratorClient,
   OrchestratorApiError,
   DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_OPERATOR_API_KEY,
+  DEFAULT_ADMIN_API_KEY,
   sanitizeTargetHostname,
   normalizeRemoteFindings,
   buildQueryString,

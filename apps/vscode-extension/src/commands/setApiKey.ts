@@ -11,10 +11,10 @@ export function registerSetApiKeyCommand(
     const existing = await context.secrets.get("codefy.apiKey");
     const input = await vscode.window.showInputBox({
       title: "Codefy: Set Operator API Key",
-      prompt: "Enter your Codefy API key for remote security scans and intelligence",
+      prompt: "Enter your Codefy API key for remote security scans and intelligence (leave blank to reset to default)",
       password: true,
       value: existing || "",
-      placeHolder: "Paste your API key here (e.g. key_...)",
+      placeHolder: "Paste your API key here (e.g. Jf2T...)",
       ignoreFocusOut: true,
     });
 
@@ -27,7 +27,7 @@ export function registerSetApiKeyCommand(
     if (!trimmed) {
       await context.secrets.delete("codefy.apiKey");
       void vscode.window.showInformationMessage(
-        "Codefy: API Key removed from secure storage.",
+        "Codefy: Custom API Key cleared. Default built-in connection restored.",
       );
     } else {
       await context.secrets.store("codefy.apiKey", trimmed);
