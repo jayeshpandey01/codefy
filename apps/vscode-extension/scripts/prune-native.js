@@ -23,6 +23,8 @@ const PLATFORM_PACKAGES = {
   "darwin-arm64": "@ast-grep/napi-darwin-arm64",
   "linux-x64": "@ast-grep/napi-linux-x64-gnu",
   "linux-arm64": "@ast-grep/napi-linux-arm64-gnu",
+  "alpine-x64": "@ast-grep/napi-linux-x64-musl",
+  "alpine-arm64": "@ast-grep/napi-linux-arm64-musl",
 };
 
 function main() {
@@ -31,12 +33,16 @@ function main() {
     ? path.resolve(process.argv[3])
     : process.cwd();
 
+  if (!target || target === "universal") {
+    console.log("[prune-native] universal target, skipping platform pruning.");
+    return;
+  }
+
   const keep = PLATFORM_PACKAGES[target];
   if (!keep) {
-    console.error(
-      `Usage: node prune-native.js <${Object.keys(PLATFORM_PACKAGES).join("|")}> [deployRoot]`,
+    console.warn(
+      `[prune-native] warning: target "${target}" not in known list (${Object.keys(PLATFORM_PACKAGES).join("|")}); skipping platform pruning.`,
     );
-    process.exitCode = 1;
     return;
   }
 

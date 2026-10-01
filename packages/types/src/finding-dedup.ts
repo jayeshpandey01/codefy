@@ -1,4 +1,4 @@
-import type { Finding, FindingStatus, Severity } from "./findings.js";
+import type { Finding, FindingStatus } from "./findings.js";
 
 const STATUS_PRIORITY: Record<FindingStatus, number> = {
   confirmed: 3,
@@ -41,7 +41,7 @@ export function normalizeVulnerabilityType(finding: Finding): string {
 export function getFindingDeduplicationKey(finding: Finding): string {
   const steps = finding.trace?.steps || [];
   const sinkStep = steps.find((s) => s.role === "sink");
-  const rawTrace = finding.trace as unknown as Record<string, any> | undefined;
+  const rawTrace = finding.trace as unknown as Record<string, { filePath?: string; line?: number }> | undefined;
   const legacySink = rawTrace?.sink;
   const legacySource = rawTrace?.source;
   const primaryStep =

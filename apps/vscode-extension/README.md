@@ -6,7 +6,7 @@ WhoAmI is a developer-first security intelligence and taint-flow static analysis
 
 ## Features
 
-### 🔍 Real-Time Static & Taint-Flow Analysis
+### Real-Time Static & Taint-Flow Analysis
 - **In-process AST Analysis**: Powered by `web-tree-sitter` and `ast-grep`.
 - **Zero-Latency Local Scans**: Scans your active workspace locally without sending confidential source code to external servers.
 - **Deduplicated Finding Engine**: Grouped and ranked findings across CWEs:
@@ -18,16 +18,16 @@ WhoAmI is a developer-first security intelligence and taint-flow static analysis
   - Server-Side Request Forgery / SSRF (CWE-918)
   - JSX / TypeScript Syntax & Parser Errors
 
-### 🪄 Interactive Diff Preview & One-Click Fixes
+### Interactive Diff Preview & One-Click Fixes
 - **Real File Context**: Inspect side-by-side or unified diffs showing your actual workspace file content (±5 context lines around the vulnerability).
 - **Automated Fix Transformations**: Apply safe sanitizers, parameterized query wrappers, secret redactions, or URL whitelists with one click.
 - **Horizontal & Vertical Pane Scrolling**: View long lines and complex expressions without truncation.
 
-### 🌐 Interconnected Architecture & Attack Graph
+### Interconnected Architecture & Attack Graph
 - Interactive visual graph view showing taint traces, entry points, sanitizers, and sinks.
 - Blast radius inspection and dependency visualization.
 
-### 📊 Multi-Format Reporting & Verification
+### Multi-Format Reporting & Verification
 - Export comprehensive security audit reports in **PDF**, **HTML**, **JSON**, and **SARIF** standards.
 - Run local proof-of-concept verification (PoC) to validate vulnerabilities before committing.
 
