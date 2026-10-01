@@ -136,10 +136,23 @@ export interface WorkspaceCollectionOptions {
  * apps/vscode-extension's build report / CLAUDE.md Part 5.
  */
 export class EngineHost {
-  private readonly engine: AnalysisEngine;
+  private engine: AnalysisEngine | null = null;
 
   constructor(private readonly output: vscode.OutputChannel) {
-    this.engine = createAnalysisEngine();
+    try {
+      this.engine = createAnalysisEngine();
+    } catch (err) {
+      this.output.appendLine(
+        `[EngineHost] Core analysis engine initialization notice: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private getEngine(): AnalysisEngine {
+    if (!this.engine) {
+      this.engine = createAnalysisEngine();
+    }
+    return this.engine;
   }
 
   logDiagnostic(level: "info" | "warn" | "error", message: string): void {
@@ -205,7 +218,8 @@ export class EngineHost {
           const sourceCode = await fs.readFile(filePath, "utf8");
           this.lastFileContents.set(filePath, sourceCode);
           stage = "analysis";
-          const result = await this.engine.scanFile(filePath, sourceCode, rules);
+          const engine = this.getEngine();
+          const result = await engine.scanFile(filePath, sourceCode, rules);
           successfullyScanned += 1;
           for (const finding of result.findings) {
             findings.push(finding);

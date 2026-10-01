@@ -36,22 +36,9 @@ WhoAmI is a developer-first security intelligence and taint-flow static analysis
 ## Getting Started
 
 1. Open a workspace or folder in VS Code.
-2. Click the **Shield Icon** in the editor title bar or run **`WhoAmI: Open Findings Panel`** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+2. Click the **Codefy Shield Icon** on the left Activity Bar (Primary Side Bar), or click the shield icon in the status bar / editor title bar.
 3. Click **Scan Workspace** to analyze your code.
 4. Click on any finding to jump to the code line, preview the attack trace, or click **Apply Fix** to review the diff and apply the fix.
-
----
-
-## Configuration
-
-You can configure WhoAmI in VS Code Settings (`settings.json`):
-
-```json
-{
-  "whoami.orchestrator.url": "https://axiom-xjkc.onrender.com",
-  "whoami.orchestrator.apiKey": "your-operator-api-key"
-}
-```
 
 ---
 

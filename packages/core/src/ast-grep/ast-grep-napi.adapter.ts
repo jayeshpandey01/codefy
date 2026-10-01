@@ -1,8 +1,45 @@
-import { Lang, parse } from "@ast-grep/napi";
-import type { NapiConfig } from "@ast-grep/napi";
+import * as path from "node:path";
+import { createRequire } from "node:module";
+import type { Lang, NapiConfig } from "@ast-grep/napi";
 import { parse as parseYaml } from "yaml";
 
 import type { AstGrepMatch, IAstGrepAdapter } from "./types.js";
+
+const requireTarget =
+  (typeof import.meta !== "undefined" && import.meta.url)
+    ? import.meta.url
+    : (typeof __filename !== "undefined" && path.isAbsolute(__filename))
+      ? __filename
+      : `file://${process.cwd()}/index.js`;
+
+const nodeRequire = createRequire(requireTarget);
+
+interface AstGrepNapiModule {
+  Lang: typeof import("@ast-grep/napi").Lang;
+  parse: typeof import("@ast-grep/napi").parse;
+}
+
+let loadedNapi: AstGrepNapiModule | null | undefined;
+
+function getNapi(): AstGrepNapiModule | null {
+  if (loadedNapi !== undefined) {
+    return loadedNapi;
+  }
+  try {
+    const mod = nodeRequire("@ast-grep/napi") as AstGrepNapiModule;
+    if (mod && mod.Lang && typeof mod.parse === "function") {
+      loadedNapi = mod;
+      return loadedNapi;
+    }
+  } catch (err) {
+    console.warn(
+      "[WhoAmI] @ast-grep/napi native addon not available; ast-grep pattern matching will be skipped:",
+      err,
+    );
+  }
+  loadedNapi = null;
+  return null;
+}
 
 /** The shape of one of our src/rules/*.yml files, as parsed from YAML. */
 interface AstGrepRuleFile {
@@ -13,12 +50,11 @@ interface AstGrepRuleFile {
   readonly utils?: Record<string, unknown>;
 }
 
-function resolveLang(language: string): Lang {
-  const lang = (Lang as Record<string, Lang>)[language];
-  if (!lang) {
-    throw new Error(`Unsupported ast-grep language: "${language}"`);
-  }
-  return lang;
+function resolveLang(language: string): Lang | null {
+  const napi = getNapi();
+  if (!napi) return null;
+  const lang = (napi.Lang as Record<string, Lang>)[language];
+  return lang ?? null;
 }
 
 /** Every `$NAME`-style metavariable referenced anywhere in a rule's YAML text (excluding `$$$` rest-patterns). */
@@ -42,29 +78,38 @@ interface CompiledRule {
 
 const compiledRuleCache = new Map<string, CompiledRule>();
 
-function getCompiledRule(ruleYaml: string): CompiledRule {
+function getCompiledRule(ruleYaml: string): CompiledRule | null {
   const cached = compiledRuleCache.get(ruleYaml);
   if (cached) return cached;
 
-  const ruleFile = parseYaml(ruleYaml) as AstGrepRuleFile;
-  const lang = resolveLang(ruleFile.language);
-  const config: NapiConfig = {
-    rule: ruleFile.rule as NapiConfig["rule"],
-    ...(ruleFile.constraints
-      ? { constraints: ruleFile.constraints as NapiConfig["constraints"] }
-      : {}),
-    ...(ruleFile.utils ? { utils: ruleFile.utils as NapiConfig["utils"] } : {}),
-  };
-  const metaVariableNames = extractMetaVariableNames(ruleYaml);
+  const napi = getNapi();
+  if (!napi) return null;
 
-  const compiled: CompiledRule = {
-    id: ruleFile.id,
-    lang,
-    config,
-    metaVariableNames,
-  };
-  compiledRuleCache.set(ruleYaml, compiled);
-  return compiled;
+  try {
+    const ruleFile = parseYaml(ruleYaml) as AstGrepRuleFile;
+    const lang = resolveLang(ruleFile.language);
+    if (!lang) return null;
+
+    const config: NapiConfig = {
+      rule: ruleFile.rule as NapiConfig["rule"],
+      ...(ruleFile.constraints
+        ? { constraints: ruleFile.constraints as NapiConfig["constraints"] }
+        : {}),
+      ...(ruleFile.utils ? { utils: ruleFile.utils as NapiConfig["utils"] } : {}),
+    };
+    const metaVariableNames = extractMetaVariableNames(ruleYaml);
+
+    const compiled: CompiledRule = {
+      id: ruleFile.id,
+      lang,
+      config,
+      metaVariableNames,
+    };
+    compiledRuleCache.set(ruleYaml, compiled);
+    return compiled;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -79,52 +124,18 @@ export class AstGrepNapiAdapter implements IAstGrepAdapter {
   }
 
   findMatches(sourceCode: string, ruleYaml: string): AstGrepMatch[] {
+    const napi = getNapi();
+    if (!napi) return [];
+
     const compiled = getCompiledRule(ruleYaml);
-    const root = parse(compiled.lang, sourceCode);
-    const rootNode = root.root();
-    const matches = rootNode.findAll(compiled.config);
+    if (!compiled) return [];
 
-    return matches.map((match) => {
-      const range = match.range();
-      const captures: Record<string, string> = {};
-      for (const name of compiled.metaVariableNames) {
-        const captured = match.getMatch(name);
-        if (captured) {
-          captures[name] = captured.text();
-        }
-      }
-      return {
-        ruleId: compiled.id,
-        // ast-grep's Pos.line is 0-based; AstGrepMatch is documented as 1-based.
-        startLine: range.start.line + 1,
-        endLine: range.end.line + 1,
-        matchText: match.text(),
-        captures,
-      };
-    });
-  }
-
-  findMatchesForAllRules(
-    sourceCode: string,
-    rules: readonly string[],
-  ): AstGrepMatch[] {
-    if (rules.length === 0) return [];
-
-    const compiledRules = rules.map(getCompiledRule);
-    const rootsByLang = new Map<Lang, ReturnType<typeof parse>>();
-    const allMatches: AstGrepMatch[] = [];
-
-    for (const compiled of compiledRules) {
-      let root = rootsByLang.get(compiled.lang);
-      if (!root) {
-        root = parse(compiled.lang, sourceCode);
-        rootsByLang.set(compiled.lang, root);
-      }
-
+    try {
+      const root = napi.parse(compiled.lang, sourceCode);
       const rootNode = root.root();
       const matches = rootNode.findAll(compiled.config);
 
-      for (const match of matches) {
+      return matches.map((match) => {
         const range = match.range();
         const captures: Record<string, string> = {};
         for (const name of compiled.metaVariableNames) {
@@ -133,13 +144,66 @@ export class AstGrepNapiAdapter implements IAstGrepAdapter {
             captures[name] = captured.text();
           }
         }
-        allMatches.push({
+        return {
           ruleId: compiled.id,
+          // ast-grep's Pos.line is 0-based; AstGrepMatch is documented as 1-based.
           startLine: range.start.line + 1,
           endLine: range.end.line + 1,
           matchText: match.text(),
           captures,
-        });
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  findMatchesForAllRules(
+    sourceCode: string,
+    rules: readonly string[],
+  ): AstGrepMatch[] {
+    if (rules.length === 0) return [];
+    const napi = getNapi();
+    if (!napi) return [];
+
+    const compiledRules = rules
+      .map(getCompiledRule)
+      .filter((r): r is CompiledRule => r !== null);
+    if (compiledRules.length === 0) return [];
+
+    const rootsByLang = new Map<Lang, ReturnType<typeof napi.parse>>();
+    const allMatches: AstGrepMatch[] = [];
+
+    for (const compiled of compiledRules) {
+      try {
+        let root = rootsByLang.get(compiled.lang);
+        if (!root) {
+          root = napi.parse(compiled.lang, sourceCode);
+          rootsByLang.set(compiled.lang, root);
+        }
+
+        const rootNode = root.root();
+        const matches = rootNode.findAll(compiled.config);
+
+        for (const match of matches) {
+          const range = match.range();
+          const captures: Record<string, string> = {};
+          for (const name of compiled.metaVariableNames) {
+            const captured = match.getMatch(name);
+            if (captured) {
+              captures[name] = captured.text();
+            }
+          }
+          allMatches.push({
+            ruleId: compiled.id,
+            startLine: range.start.line + 1,
+            endLine: range.end.line + 1,
+            matchText: match.text(),
+            captures,
+          });
+        }
+      } catch {
+        // Skip individual failing rule
       }
     }
 

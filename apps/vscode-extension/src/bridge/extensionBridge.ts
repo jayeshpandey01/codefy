@@ -110,7 +110,7 @@ export class ExtensionBridge {
   private readonly gatewayAuthClient = new GatewayAuthClient();
 
   constructor(
-    private readonly panel: vscode.WebviewPanel,
+    private readonly panel: vscode.WebviewPanel | vscode.WebviewView,
     private readonly engineHost: EngineHost,
     private readonly context: vscode.ExtensionContext,
     /** From WhoAmIPanel.pendingUpdateNotice, consumed once -- see the

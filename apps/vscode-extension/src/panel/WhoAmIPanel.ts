@@ -64,7 +64,7 @@ export class WhoAmIPanel {
 
     const panel = vscode.window.createWebviewPanel(
       WhoAmIPanel.viewType,
-      "WhoAmI Findings",
+      "Codefy Security",
       column ?? vscode.ViewColumn.Beside,
       {
         enableScripts: true,

@@ -5,6 +5,7 @@ import { registerScanWorkspaceCommand } from "./commands/scanWorkspace.js";
 import { registerSetApiKeyCommand } from "./commands/setApiKey.js";
 import { computeUpdateNotice } from "./bridge/updateNotice.js";
 import { WhoAmIPanel } from "./panel/WhoAmIPanel.js";
+import { CodefyViewProvider } from "./panel/CodefyViewProvider.js";
 
 export function activate(context: vscode.ExtensionContext): void {
   const scanOutput = vscode.window.createOutputChannel("Codefy Scanner");
@@ -12,8 +13,21 @@ export function activate(context: vscode.ExtensionContext): void {
   // lifetime -- see CLAUDE.md Part 5 and src/engine/engineHost.ts.
   const engineHost = new EngineHost(scanOutput);
 
+  // Activity Bar Sidebar Webview Provider (Left Navbar Icon)
+  const viewProvider = new CodefyViewProvider(context, engineHost);
+  const viewDisposable = vscode.window.registerWebviewViewProvider(
+    CodefyViewProvider.viewType,
+    viewProvider,
+    {
+      webviewOptions: {
+        retainContextWhenHidden: true,
+      },
+    },
+  );
+
   context.subscriptions.push(
     scanOutput,
+    viewDisposable,
     registerScanWorkspaceCommand(context, engineHost),
     registerOpenPanelCommand(context, engineHost),
     registerSetApiKeyCommand(context),
@@ -26,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   statusBar.text = "$(shield) Codefy";
   statusBar.tooltip = "Codefy: Open Security Panel";
-  statusBar.command = "codefy.openPanel";
+  statusBar.command = "codefy.findingsView.focus";
   statusBar.show();
   context.subscriptions.push(statusBar);
 

@@ -33,13 +33,39 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onStartupFinished",
+    "onView:codefy.findingsView",
     "onCommand:codefy.scanWorkspace",
     "onCommand:codefy.openPanel",
+    "onCommand:codefy.focusSidebar",
     "onCommand:whoami.scanWorkspace",
     "onCommand:whoami.openPanel"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codefy-sidebar",
+          "title": "Codefy",
+          "icon": "media/shield.svg"
+        }
+      ]
+    },
+    "views": {
+      "codefy-sidebar": [
+        {
+          "type": "webview",
+          "id": "codefy.findingsView",
+          "name": "Security Intelligence"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "codefy.focusSidebar",
+        "title": "Focus Security Sidebar",
+        "category": "Codefy",
+        "icon": "$(shield)"
+      },
       {
         "command": "codefy.scanWorkspace",
         "title": "Scan Workspace for Security Findings",
@@ -74,6 +100,18 @@
           "command": "codefy.openPanel",
           "group": "navigation",
           "when": "true"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "codefy.scanWorkspace",
+          "group": "navigation",
+          "when": "view == codefy.findingsView"
+        },
+        {
+          "command": "codefy.openPanel",
+          "group": "navigation",
+          "when": "view == codefy.findingsView"
         }
       ]
     },
