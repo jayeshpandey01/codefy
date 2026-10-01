@@ -44,9 +44,14 @@ function run(command, args, options) {
   }
 }
 
+const fs = require("node:fs");
 const deployDirRelative = path.join("out", "deploy");
 const deployDir = path.join(repoRoot, deployDirRelative);
 const vsixOutDir = path.join(repoRoot, "dist-vsix");
+
+if (fs.existsSync(deployDir)) {
+  fs.rmSync(deployDir, { recursive: true, force: true });
+}
 
 console.log(`[package] deploying whoami -> ${deployDir}`);
 run(
@@ -56,6 +61,7 @@ run(
     "--filter",
     "whoami",
     "--prod",
+    "--legacy",
     deployDirRelative,
   ],
   {
@@ -72,11 +78,32 @@ run("node", [
   deployDir,
 ]);
 
-console.log(`[package] vsce package --target ${target}`);
+// Remove scripts from deploy package.json so vsce doesn't attempt to run dev scripts
+const deployPkgJsonPath = path.join(deployDir, "package.json");
+if (fs.existsSync(deployPkgJsonPath)) {
+  const pkg = JSON.parse(fs.readFileSync(deployPkgJsonPath, "utf-8"));
+  delete pkg.scripts;
+  fs.writeFileSync(deployPkgJsonPath, JSON.stringify(pkg, null, 2), "utf-8");
+}
+
+// Ensure icon, license, readme are in deployDir
+for (const asset of ["icon.png", "README.md", "LICENSE"]) {
+  const src = path.join(appRoot, asset);
+  const dest = path.join(deployDir, asset);
+  if (fs.existsSync(src) && !fs.existsSync(dest)) {
+    fs.copyFileSync(src, dest);
+  }
+}
+
+console.log(`[package] @vscode/vsce package --target ${target}`);
+if (!fs.existsSync(vsixOutDir)) {
+  fs.mkdirSync(vsixOutDir, { recursive: true });
+}
 run(
   "npx",
   [
-    "vsce",
+    "--yes",
+    "@vscode/vsce",
     "package",
     "--target",
     target,
