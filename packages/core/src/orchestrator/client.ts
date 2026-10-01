@@ -574,7 +574,7 @@ export class ScanOrchestratorClient {
     return this.request<TargetRead>("/v1/targets", {
       method: "POST",
       body: targetPayload,
-      auth: "operator",
+      auth: "admin",
     });
   }
 

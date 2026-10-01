@@ -3977,7 +3977,7 @@ var ScanOrchestratorClient = class {
     return this.request("/v1/targets", {
       method: "POST",
       body: targetPayload,
-      auth: "operator"
+      auth: "admin"
     });
   }
   /**

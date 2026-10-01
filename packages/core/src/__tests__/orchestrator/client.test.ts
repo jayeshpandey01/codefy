@@ -175,7 +175,7 @@ describe("ScanOrchestratorClient", () => {
         authorization_reference: "AUTH-1",
         authorization_confirmed: true,
       }),
-    ).rejects.toThrow("Sign in to use cloud scans");
+    ).rejects.toThrow("An administrator account is required for this operation");
   });
 
   // ==========================================================================
