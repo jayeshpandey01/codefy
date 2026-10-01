@@ -49,9 +49,9 @@ jobs:
 
       - run: pnpm version:sync
 
-      - run: pnpm turbo build --filter=whoami...
+      - run: pnpm turbo build --filter=codefy...
 
-      - run: pnpm --filter whoami run package ${{ matrix.target }}
+      - run: pnpm --filter codefy run package ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v4
         with:
