@@ -3,36 +3,9 @@
   "release-type": "node",
   "packages": {
     "apps/vscode-extension": {
-      "package-name": "whoami",
+      "package-name": "codefy-whoami",
       "include-component-in-tag": false,
-      "changelog-path": "CHANGELOG.md",
-      "extra-files": [
-        {
-          "type": "json",
-          "path": "../desktop-app/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "toml",
-          "path": "../desktop-app/src-tauri/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "json",
-          "path": "../../packages/types/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "../../packages/core/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "../../packages/ui/package.json",
-          "jsonpath": "$.version"
-        }
-      ]
+      "changelog-path": "CHANGELOG.md"
     }
   },
   "draft": true
