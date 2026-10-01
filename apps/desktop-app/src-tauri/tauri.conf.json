@@ -53,6 +53,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5NjY1RDU5OTE0RkM5QQpSV1NhL0JTWjFXV1dEWldaZnBHcjJpb0R1MFpMOElNTEZzUzZNWnBxUVBsdThLTVhxeThHZ3ltUAo=",
       "endpoints": [
+        "https://codefy.ai/api/releases/latest.json",
         "https://github.com/jayeshpandey01/codefy/releases/latest/download/latest.json"
       ],
       "windows": {

@@ -53,3 +53,14 @@ jobs:
       - run: gh release edit "${{ needs.release.outputs.tag }}" --draft=false --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trigger whoami_ui release notification pipeline
+        run: |
+          TOKEN="${{ secrets.WHOAMI_UI_PAT || secrets.RELEASE_SYNC_SECRET }}"
+          if [ -n "$TOKEN" ]; then
+            echo "Notifying whoami_ui repository dispatch..."
+            curl -sS -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token $TOKEN" \
+              https://api.github.com/repos/jayeshpandey01/whoami_ui/dispatches \
+              -d "{\"event_type\": \"desktop-release\", \"client_payload\": {\"version\": \"${{ needs.release.outputs.tag }}\"}}" || echo "Dispatch completed with notice"
+          fi
