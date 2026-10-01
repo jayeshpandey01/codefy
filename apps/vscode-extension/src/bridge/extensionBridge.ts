@@ -717,8 +717,25 @@ export class ExtensionBridge {
           targetPath = path.join(rootPath, targetPath);
         }
       }
-      const document = await vscode.workspace.openTextDocument(targetPath);
-      const content = document.getText();
+
+      if (!fs.existsSync(targetPath)) {
+        for (const folder of vscode.workspace.workspaceFolders ?? []) {
+          const candidate = path.join(folder.uri.fsPath, filePath.replace(/^[/\\]+/, ""));
+          if (fs.existsSync(candidate)) {
+            targetPath = candidate;
+            break;
+          }
+        }
+      }
+
+      let content: string | null = null;
+      if (fs.existsSync(targetPath)) {
+        content = fs.readFileSync(targetPath, "utf-8");
+      } else {
+        const document = await vscode.workspace.openTextDocument(targetPath);
+        content = document.getText();
+      }
+
       this.post({
         type: "get-file-content-result",
         filePath,

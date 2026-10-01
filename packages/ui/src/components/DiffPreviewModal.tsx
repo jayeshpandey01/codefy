@@ -341,7 +341,7 @@ export function DiffPreviewModal({
               <div className="w-1/2 flex items-center justify-between px-4 py-1.5 text-severity-critical border-r border-vscode-border">
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-severity-critical" />
-                  <span>Original Code (Before)</span>
+                  <span>Original Code (Previous)</span>
                 </div>
                 <span className="text-[10px] text-vscode-muted">BEFORE</span>
               </div>

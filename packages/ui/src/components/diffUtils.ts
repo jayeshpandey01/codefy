@@ -618,6 +618,15 @@ function applyRuleTransformation(
   }
 
   if (scope === "secrets" || ruleId.includes("secret") || code === "secret") {
+    // If it's a .env or key-value file: KEY=value
+    const envMatch = lineText.match(/^(\s*)([A-Za-z0-9_.-]+)\s*=\s*(.*)$/);
+    if (envMatch) {
+      const [, envIndent, key, val] = envMatch;
+      const hasQuotes = val?.startsWith('"') || val?.startsWith("'");
+      const safeVal = hasQuotes ? '""' : "";
+      return `${envIndent}${key}=${safeVal} # Rotate secret and set via environment / vault`;
+    }
+
     return lineText.replace(
       /(["'`])[A-Za-z0-9+/=_\-.$@!^&*]{8,}(["'`])/,
       'process.env.' + (lineText.match(/\b([A-Z_]{3,})\b/) ?? ["", "SECRET"])[1] + ' || ""',

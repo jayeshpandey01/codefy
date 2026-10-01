@@ -89,7 +89,22 @@ const webviewConfig = {
   },
 };
 
+const { execSync } = require("node:child_process");
+
+function buildUi() {
+  const uiRoot = path.resolve(root, "../../packages/ui");
+  const viteBin = path.join(uiRoot, "node_modules/.bin/vite");
+  try {
+    console.log("[whoami] building @whoami/ui via vite...");
+    execSync(`"${viteBin}" build`, { cwd: uiRoot, stdio: "inherit" });
+  } catch (err) {
+    console.warn("[whoami] Note: Vite build for @whoami/ui returned:", err.message);
+  }
+}
+
 async function run() {
+  buildUi();
+
   if (watch) {
     const [hostCtx, webviewCtx] = await Promise.all([
       esbuild.context(hostConfig),
