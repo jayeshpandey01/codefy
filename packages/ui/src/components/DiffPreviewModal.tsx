@@ -88,21 +88,20 @@ const HATCHED_BG_STYLE: React.CSSProperties = {
 };
 
 /**
- * Renders a single cell in the split diff view
+ * Renders a single cell in the split diff view.
+ * Rows use min-w-max so the parent pane scroll container handles horizontal overflow.
  */
 function SplitCell({ line }: { line: DiffLine }): React.ReactElement {
   if (line.type === "empty") {
     return (
       <div
         style={HATCHED_BG_STYLE}
-        className="flex h-6 w-full items-center border-b border-vscode-card/30 select-none"
+        className="flex h-6 min-w-max items-center border-b border-vscode-card/30 select-none"
       >
         <div className="w-12 shrink-0 border-r border-vscode-border/50 bg-[#161616] px-2 py-0.5 text-right font-mono text-xs text-transparent">
           &nbsp;
         </div>
-        <div className="flex-1 px-3 py-0.5 text-xs font-mono text-transparent">
-          &nbsp;
-        </div>
+        <div className="px-3 py-0.5 text-xs font-mono text-transparent">&nbsp;</div>
       </div>
     );
   }
@@ -129,11 +128,11 @@ function SplitCell({ line }: { line: DiffLine }): React.ReactElement {
 
   return (
     <div
-      className={`flex h-6 w-full items-center border-b border-vscode-card/40 transition-colors ${rowBg}`}
+      className={`flex h-6 min-w-max items-center border-b border-vscode-card/40 transition-colors ${rowBg}`}
     >
-      {/* Gutter (Line Number + Prefix Symbol) */}
+      {/* Gutter (Line Number + Prefix Symbol) - sticky to left edge */}
       <div
-        className={`flex w-12 shrink-0 items-center justify-between border-r border-vscode-border px-1.5 py-0.5 font-mono text-xs select-none ${gutterBg}`}
+        className={`flex w-12 shrink-0 items-center justify-between border-r border-vscode-border px-1.5 py-0.5 font-mono text-xs select-none sticky left-0 z-10 ${gutterBg}`}
       >
         <span className="w-6 text-right">{line.lineNum}</span>
         <span className={`w-3 text-center text-[11px] ${prefixColor}`}>
@@ -141,8 +140,8 @@ function SplitCell({ line }: { line: DiffLine }): React.ReactElement {
         </span>
       </div>
 
-      {/* Code Text Content */}
-      <div className="flex-1 overflow-x-auto px-3 py-0.5 font-mono text-xs leading-snug whitespace-pre">
+      {/* Code Text Content — unrestricted width, never truncated */}
+      <div className="px-3 py-0.5 font-mono text-xs leading-snug whitespace-pre">
         <HighlightedCode text={line.text} />
       </div>
     </div>
@@ -224,7 +223,7 @@ export function DiffPreviewModal({
         }
       }}
     >
-      <div className="flex flex-col w-[840px] max-w-[calc(100vw-32px)] max-h-[88vh] rounded-lg border border-vscode-border bg-vscode-bg text-vscode-fg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-100">
+      <div className="flex flex-col w-[95vw] max-w-[1400px] max-h-[88vh] rounded-lg border border-vscode-border bg-vscode-bg text-vscode-fg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-100">
         {/* Top Header: File Breadcrumb & Action Bar */}
       <header className="flex h-11 items-center justify-between border-b border-vscode-border bg-vscode-header px-4 shrink-0 z-20">
         <div className="flex items-center gap-3 overflow-x-auto min-w-0 pr-2">
@@ -333,15 +332,16 @@ export function DiffPreviewModal({
       </header>
 
       {/* Center Full-Height Code Comparison Canvas */}
-      <main className="flex-1 w-full min-h-0 overflow-auto bg-vscode-bg relative">
+      <main className="flex-1 w-full min-h-[340px] min-h-0 overflow-y-auto bg-vscode-bg relative">
         {viewMode === "split" ? (
-          <div className="flex flex-col min-w-full">
-            {/* Split Column Headers */}
-            <div className="flex border-b border-vscode-border bg-vscode-header sticky top-0 z-10 font-mono text-[11px] uppercase font-bold tracking-wider select-none">
+          /* Split view: two independent panes, each with horizontal scroll */
+          <div className="flex h-full">
+            {/* Column Headers — sticky across both panes */}
+            <div className="absolute inset-x-0 top-0 z-20 flex border-b border-vscode-border bg-vscode-header font-mono text-[11px] uppercase font-bold tracking-wider select-none pointer-events-none">
               <div className="w-1/2 flex items-center justify-between px-4 py-1.5 text-severity-critical border-r border-vscode-border">
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-severity-critical" />
-                  <span>Original Code (Previous)</span>
+                  <span>Original Code (Before)</span>
                 </div>
                 <span className="text-[10px] text-vscode-muted">BEFORE</span>
               </div>
@@ -354,100 +354,85 @@ export function DiffPreviewModal({
               </div>
             </div>
 
-            {/* Split Diff Rows */}
-            <div className="flex flex-col divide-y-0">
-              {diffResult.rows.map((row: AlignedDiffRow, index: number) => (
-                <div key={index} className="flex w-full">
-                  {/* Left Pane (Original / Before) */}
-                  <div className="w-1/2 min-w-0 border-r border-vscode-border">
-                    <SplitCell line={row.left} />
-                  </div>
+            {/* Left Pane — original code, scrolls independently */}
+            <div className="w-1/2 border-r border-vscode-border overflow-x-auto overflow-y-visible pt-8">
+              <div className="flex flex-col min-w-max">
+                {diffResult.rows.map((row: AlignedDiffRow, index: number) => (
+                  <SplitCell key={index} line={row.left} />
+                ))}
+              </div>
+            </div>
 
-                  {/* Right Pane (Modified / After) */}
-                  <div className="w-1/2 min-w-0">
-                    <SplitCell line={row.right} />
-                  </div>
-                </div>
-              ))}
+            {/* Right Pane — proposed fix, scrolls independently */}
+            <div className="w-1/2 overflow-x-auto overflow-y-visible pt-8">
+              <div className="flex flex-col min-w-max">
+                {diffResult.rows.map((row: AlignedDiffRow, index: number) => (
+                  <SplitCell key={index} line={row.right} />
+                ))}
+              </div>
             </div>
           </div>
         ) : (
-          /* Unified (Inline) Diff View */
-          <div className="flex flex-col min-w-full">
+          /* Unified (Inline) Diff View — single scrollable column */
+          <div className="flex flex-col">
             <div className="border-b border-vscode-border bg-vscode-header sticky top-0 z-10 px-4 py-1.5 font-mono text-[11px] uppercase font-bold tracking-wider text-vscode-muted">
               Unified Changes View
             </div>
-            <div className="flex flex-col">
-              {diffResult.rows.map((row: AlignedDiffRow, index: number) => {
-                if (
-                  row.left.type === "unchanged" &&
-                  row.right.type === "unchanged"
-                ) {
-                  return (
-                    <div
-                      key={index}
-                      className="flex h-6 w-full items-center border-b border-vscode-card/40 hover:bg-vscode-card-hover/40"
-                    >
-                      <div className="flex w-16 shrink-0 items-center justify-between border-r border-vscode-border bg-vscode-header px-1.5 py-0.5 font-mono text-xs text-vscode-muted select-none">
-                        <span className="w-6 text-right">
-                          {row.left.lineNum}
-                        </span>
-                        <span className="w-6 text-right">
-                          {row.right.lineNum}
-                        </span>
-                      </div>
-                      <div className="w-4 text-center font-mono text-[11px] text-vscode-muted">
-                        &nbsp;
-                      </div>
-                      <div className="flex-1 overflow-x-auto px-2 py-0.5 font-mono text-xs leading-snug whitespace-pre">
-                        <HighlightedCode text={row.left.text} />
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <React.Fragment key={index}>
-                    {row.left.type === "deleted" && (
-                      <div className="flex h-6 w-full items-center border-b border-vscode-card-hover/40 bg-[#5A1D1D]/35 hover:bg-[#5A1D1D]/50 border-l-2 border-[#BE1100]">
-                        <div className="flex w-16 shrink-0 items-center justify-between border-r border-vscode-border bg-[#4D1515] px-1.5 py-0.5 font-mono text-xs text-severity-critical font-semibold select-none">
-                          <span className="w-6 text-right">
-                            {row.left.lineNum}
-                          </span>
-                          <span className="w-6 text-right text-transparent">
-                            -
-                          </span>
+            <div className="overflow-x-auto">
+              <div className="flex flex-col min-w-max">
+                {diffResult.rows.map((row: AlignedDiffRow, index: number) => {
+                  if (
+                    row.left.type === "unchanged" &&
+                    row.right.type === "unchanged"
+                  ) {
+                    return (
+                      <div
+                        key={index}
+                        className="flex h-6 min-w-max items-center border-b border-vscode-card/40 hover:bg-vscode-card-hover/40"
+                      >
+                        <div className="flex w-16 shrink-0 items-center justify-between border-r border-vscode-border bg-vscode-header px-1.5 py-0.5 font-mono text-xs text-vscode-muted select-none sticky left-0 z-10">
+                          <span className="w-6 text-right">{row.left.lineNum}</span>
+                          <span className="w-6 text-right">{row.right.lineNum}</span>
                         </div>
-                        <div className="w-4 text-center font-mono text-[11px] text-severity-critical font-bold">
-                          -
-                        </div>
-                        <div className="flex-1 overflow-x-auto px-2 py-0.5 font-mono text-xs leading-snug whitespace-pre">
+                        <div className="w-4 text-center font-mono text-[11px] text-vscode-muted">&nbsp;</div>
+                        <div className="px-2 py-0.5 font-mono text-xs leading-snug whitespace-pre">
                           <HighlightedCode text={row.left.text} />
                         </div>
                       </div>
-                    )}
+                    );
+                  }
 
-                    {row.right.type === "added" && (
-                      <div className="flex h-6 w-full items-center border-b border-vscode-card-hover/40 bg-[#1E3B20]/35 hover:bg-[#1E3B20]/50 border-l-2 border-[#4EC9B0]">
-                        <div className="flex w-16 shrink-0 items-center justify-between border-r border-vscode-border bg-[#16301A] px-1.5 py-0.5 font-mono text-xs text-severity-low font-semibold select-none">
-                          <span className="w-6 text-right text-transparent">
-                            +
-                          </span>
-                          <span className="w-6 text-right">
-                            {row.right.lineNum}
-                          </span>
+                  return (
+                    <React.Fragment key={index}>
+                      {row.left.type === "deleted" && (
+                        <div className="flex h-6 min-w-max items-center border-b border-vscode-card-hover/40 bg-[#5A1D1D]/35 hover:bg-[#5A1D1D]/50 border-l-2 border-[#BE1100]">
+                          <div className="flex w-16 shrink-0 items-center justify-between border-r border-vscode-border bg-[#4D1515] px-1.5 py-0.5 font-mono text-xs text-severity-critical font-semibold select-none sticky left-0 z-10">
+                            <span className="w-6 text-right">{row.left.lineNum}</span>
+                            <span className="w-6 text-right text-transparent">-</span>
+                          </div>
+                          <div className="w-4 text-center font-mono text-[11px] text-severity-critical font-bold">-</div>
+                          <div className="px-2 py-0.5 font-mono text-xs leading-snug whitespace-pre">
+                            <HighlightedCode text={row.left.text} />
+                          </div>
                         </div>
-                        <div className="w-4 text-center font-mono text-[11px] text-severity-low font-bold">
-                          +
+                      )}
+
+                      {row.right.type === "added" && (
+                        <div className="flex h-6 min-w-max items-center border-b border-vscode-card-hover/40 bg-[#1E3B20]/35 hover:bg-[#1E3B20]/50 border-l-2 border-[#4EC9B0]">
+                          <div className="flex w-16 shrink-0 items-center justify-between border-r border-vscode-border bg-[#16301A] px-1.5 py-0.5 font-mono text-xs text-severity-low font-semibold select-none sticky left-0 z-10">
+                            <span className="w-6 text-right text-transparent">+</span>
+                            <span className="w-6 text-right">{row.right.lineNum}</span>
+                          </div>
+                          <div className="w-4 text-center font-mono text-[11px] text-severity-low font-bold">+</div>
+                          <div className="px-2 py-0.5 font-mono text-xs leading-snug whitespace-pre">
+                            <HighlightedCode text={row.right.text} />
+                          </div>
                         </div>
-                        <div className="flex-1 overflow-x-auto px-2 py-0.5 font-mono text-xs leading-snug whitespace-pre">
-                          <HighlightedCode text={row.right.text} />
-                        </div>
-                      </div>
-                    )}
-                  </React.Fragment>
-                );
-              })}
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
