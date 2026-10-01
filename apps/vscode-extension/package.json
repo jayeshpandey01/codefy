@@ -10,6 +10,8 @@
   "publisher": "whoami",
   "displayName": "WhoAmI",
   "description": "Real-time taint-flow finding detection, visual attack paths, and local runtime verification inside VS Code.",
+  "icon": "icon.png",
+  "license": "SEE LICENSE IN LICENSE",
   "categories": [
     "Linters",
     "Other"

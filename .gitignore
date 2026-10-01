@@ -8,6 +8,7 @@ dist-query/
 coverage/
 out/deploy/
 dist-vsix/
+*.vsix
 src-tauri/target/
 .env
 .env.local
