@@ -267,6 +267,9 @@ export class ExtensionBridge {
         case "apply-fix-request":
           await this.handleApplyFix(message.findingId, message.requestId);
           return;
+        case "get-file-content-request":
+          await this.handleGetFileContent(message.filePath, message.requestId);
+          return;
         case "run-poc-request":
           this.handleRunPoc(message.findingId, message.requestId);
           return;
@@ -320,6 +323,7 @@ export class ExtensionBridge {
         case "get-trace-result":
         case "get-workspace-graph-result":
         case "apply-fix-result":
+        case "get-file-content-result":
         case "run-poc-result":
         case "register-target-result":
         case "list-targets-result":
@@ -699,6 +703,37 @@ export class ExtensionBridge {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const graph = await this.engineHost.getWorkspaceGraph(rootPath);
     this.post({ type: "get-workspace-graph-result", graph, requestId });
+  }
+
+  private async handleGetFileContent(
+    filePath: string,
+    requestId: string | undefined,
+  ): Promise<void> {
+    try {
+      let targetPath = filePath;
+      if (!path.isAbsolute(targetPath)) {
+        const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (rootPath) {
+          targetPath = path.join(rootPath, targetPath);
+        }
+      }
+      const document = await vscode.workspace.openTextDocument(targetPath);
+      const content = document.getText();
+      this.post({
+        type: "get-file-content-result",
+        filePath,
+        content,
+        requestId,
+      });
+    } catch (err) {
+      this.post({
+        type: "get-file-content-result",
+        filePath,
+        content: null,
+        error: err instanceof Error ? err.message : String(err),
+        requestId,
+      });
+    }
   }
 
   private async handleApplyFix(

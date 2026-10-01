@@ -552,3 +552,148 @@ executeSafeRemediatedCall();`;
     breadcrumb,
   };
 }
+
+/**
+ * Applies the same rule-based code transformation used by the extension host (handleApplyFix)
+ * to a single line of actual source code and returns the replacement string(s).
+ */
+function applyRuleTransformation(
+  lineText: string,
+  finding: Finding,
+  fullSource: string,
+): string {
+  const indent = lineText.match(/^\s*/)?.[0] ?? "";
+  const ruleId = finding.ruleId ?? "";
+  const code = finding.code ?? "";
+  const scope = finding.scope ?? "";
+
+  if (ruleId === "js-command-injection-exec" || ruleId.includes("command-injection")) {
+    if (lineText.includes("exec(")) {
+      return lineText.replace(/exec\(([^,)]+)(.*)\)/, "execFile(binaryPath, [$1]$2)");
+    } else if (lineText.includes("execSync(")) {
+      return lineText.replace(/execSync\(([^,)]+)(.*)\)/, "execFileSync(binaryPath, [$1]$2)");
+    }
+  }
+
+  if (ruleId === "js-path-traversal" || ruleId.includes("path-traversal")) {
+    const m = lineText.match(/(?:fs\.)?(?:readFile|readFileSync|createReadStream)\(([^,)]+)/);
+    const arg = m ? m[1]!.trim() : "targetPath";
+    const hasPathImport = fullSource.includes('from "path"') || fullSource.includes('require("path")');
+    const pathImport = hasPathImport ? "" : `const path = require("path");\n${indent}`;
+    return `${indent}${pathImport}const BASE_DIR = path.resolve(".");\n${indent}const safePath = path.resolve(BASE_DIR, path.normalize(${arg}));\n${indent}if (!safePath.startsWith(BASE_DIR)) throw new Error("SecurityException: Path traversal detected");\n${lineText.replace(/(?:fs\.)?(?:readFile|readFileSync|createReadStream)\([^,)]+/, (hit) => hit.replace(arg, "safePath"))}`;
+  }
+
+  if (ruleId === "js-sql-injection-string-concat" || ruleId.includes("sql-injection")) {
+    const templateMatch = lineText.match(/(query|raw|execute)\s*\(\s*`([^`]+)`/);
+    if (templateMatch) {
+      const fnName = templateMatch[1]!;
+      const rawTemplate = templateMatch[2]!;
+      const interpolations: string[] = [];
+      const parameterizedQuery = rawTemplate.replace(/\$\{([^}]+)\}/g, (_m, expr) => {
+        interpolations.push(expr.trim());
+        return `$${interpolations.length}`;
+      });
+      const paramList = interpolations.length > 0 ? `[${interpolations.join(", ")}]` : "[]";
+      return lineText.replace(/(query|raw|execute)\s*\(\s*`[^`]+`/, `${fnName}("${parameterizedQuery}", ${paramList}`);
+    } else if (lineText.includes("`") && lineText.includes("${")) {
+      const interpolations: string[] = [];
+      const parameterized = lineText.replace(/\$\{([^}]+)\}/g, (_m, expr) => {
+        interpolations.push(expr.trim());
+        return `$${interpolations.length}`;
+      });
+      return parameterized.replace(/`([^`]+)`/, '"$1"');
+    }
+  }
+
+  if (ruleId === "js-code-injection" || ruleId.includes("code-injection")) {
+    if (lineText.includes("eval(")) {
+      return lineText.replace(/eval\(([^)]+)\)/, "JSON.parse($1)");
+    }
+  }
+
+  if (ruleId === "js-ssrf-unvalidated-url" || ruleId.includes("ssrf")) {
+    const urlMatch = lineText.match(/(?:fetch|axios\.(?:get|post)|http\.request)\s*\(\s*([^,)\s]+)/);
+    const urlVar = urlMatch ? urlMatch[1]!.trim() : "targetUrl";
+    return `${indent}const parsedUrl = new URL(${urlVar});\n${indent}const ALLOWED_HOSTS = ["api.internal", "trusted-service.com"];\n${indent}if (parsedUrl.protocol !== "https:" || !ALLOWED_HOSTS.includes(parsedUrl.hostname)) throw new Error("SecurityException: Untrusted remote host");\n${lineText.replace(urlVar, "parsedUrl.toString()")}`;
+  }
+
+  if (scope === "secrets" || ruleId.includes("secret") || code === "secret") {
+    return lineText.replace(
+      /(["'`])[A-Za-z0-9+/=_\-.$@!^&*]{8,}(["'`])/,
+      'process.env.' + (lineText.match(/\b([A-Z_]{3,})\b/) ?? ["", "SECRET"])[1] + ' || ""',
+    );
+  }
+
+  if (scope === "parser" || ruleId.includes("syntax") || code === "syntax_error") {
+    const trimmed = lineText.trim();
+    if (trimmed.endsWith("<") || (trimmed.startsWith("<") && !trimmed.endsWith(">") && !trimmed.endsWith("/>"))) {
+      return `${lineText}/>`;
+    } else if (trimmed.endsWith("(")) {
+      return `${lineText});`;
+    } else if (trimmed.endsWith("{")) {
+      return `${lineText}}`;
+    }
+    return `${indent}// [Fixed Syntax Error]\n${lineText}`;
+  }
+
+  if (finding.fix) {
+    return `${indent}// [Remediated: ${finding.title}]\n${indent}// Previous: ${lineText.trim()}\n${indent}${finding.fix.split("\n")[0]}`;
+  }
+
+  return `// [Fixed Vulnerability: ${finding.title}] ${lineText.trim()}`;
+}
+
+/**
+ * Generates a real diff from actual source file content.
+ * Shows ±5 context lines around the finding's sink line.
+ * Uses the same rule-based transformation logic as the extension host's handleApplyFix.
+ */
+export function generateFindingDiffFromSource(
+  finding: Finding,
+  fileContent: string,
+): DiffResult {
+  const steps = finding.trace?.steps ?? [];
+  const primaryStep = steps[steps.length - 1] ?? steps[0];
+  const rawPath = primaryStep?.filePath ?? "src/index.ts";
+
+  const cleanPath = rawPath.replace(/^https?:\/\/[^/]+\/?/, "");
+  const pathParts = cleanPath.split(/[/\\]/);
+  const breadcrumb = pathParts.length > 0 ? pathParts : ["src", "index.ts"];
+
+  const sinkLine = Math.max(1, primaryStep?.line ?? 1);
+  const CONTEXT = 5;
+  const allLines = fileContent.split(/\r?\n/);
+  const totalLines = allLines.length;
+
+  const startIdx = Math.max(0, sinkLine - 1 - CONTEXT);  // 0-indexed
+  const endIdx = Math.min(totalLines - 1, sinkLine - 1 + CONTEXT); // 0-indexed inclusive
+  const startLine = startIdx + 1; // 1-indexed for display
+
+  const contextLines = allLines.slice(startIdx, endIdx + 1);
+  const sinkIdxWithinContext = sinkLine - 1 - startIdx; // 0-indexed within contextLines
+
+  const originalCode = contextLines.join("\n");
+
+  // Build modified code: replace just the sink line with the fixed version
+  const modifiedLines = [...contextLines];
+  const sinkLineText = contextLines[sinkIdxWithinContext] ?? "";
+  const fixedText = applyRuleTransformation(sinkLineText, finding, fileContent);
+  // fixedText may be multi-line; splice into modifiedLines
+  const fixedLines = fixedText.split("\n");
+  modifiedLines.splice(sinkIdxWithinContext, 1, ...fixedLines);
+  const modifiedCode = modifiedLines.join("\n");
+
+  const { rows, additionsCount, deletionsCount } = computeSideBySideDiff(
+    originalCode,
+    modifiedCode,
+    startLine,
+  );
+
+  return {
+    rows,
+    additionsCount,
+    deletionsCount,
+    filePath: cleanPath,
+    breadcrumb,
+  };
+}

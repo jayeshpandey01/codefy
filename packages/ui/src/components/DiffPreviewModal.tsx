@@ -14,6 +14,7 @@ import {
 import { SeverityBadge } from "./SeverityBadge.js";
 import {
   generateFindingDiff,
+  generateFindingDiffFromSource,
   tokenizeCode,
   type AlignedDiffRow,
   type DiffLine,
@@ -24,6 +25,8 @@ export interface DiffPreviewModalProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly onApplyFix: (finding: Finding) => Promise<boolean | void> | void;
+  /** Optional actual source file content. When provided, the diff shows real code instead of illustrative templates. */
+  readonly fileContent?: string | null;
 }
 
 type ViewMode = "split" | "unified";
@@ -154,6 +157,7 @@ export function DiffPreviewModal({
   isOpen,
   onClose,
   onApplyFix,
+  fileContent,
 }: DiffPreviewModalProps): React.ReactElement | null {
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const [fixState, setFixState] = useState<
@@ -161,7 +165,13 @@ export function DiffPreviewModal({
   >("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const diffResult = useMemo(() => generateFindingDiff(finding), [finding]);
+  const diffResult = useMemo(
+    () =>
+      fileContent
+        ? generateFindingDiffFromSource(finding, fileContent)
+        : generateFindingDiff(finding),
+    [finding, fileContent],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -243,6 +253,17 @@ export function DiffPreviewModal({
           </div>
 
           <div className="h-4 w-[1px] bg-vscode-border mx-1 shrink-0" />
+
+          {/* Real Code indicator */}
+          {fileContent ? (
+            <span className="shrink-0 rounded border border-[#4EC9B0]/50 bg-[#1E3B20]/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-severity-low">
+              Real Code
+            </span>
+          ) : (
+            <span className="shrink-0 rounded border border-vscode-border/50 bg-vscode-card/60 px-1.5 py-0.5 font-mono text-[10px] text-vscode-muted">
+              Illustrative
+            </span>
+          )}
 
           {/* Severity and Title */}
           <div className="flex items-center gap-2 min-w-0 truncate">

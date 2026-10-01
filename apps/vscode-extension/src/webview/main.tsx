@@ -1455,6 +1455,13 @@ function App(): ReactElement {
                         >({ type: "run-poc-request", findingId: f.id });
                         return res.verified;
                       }}
+                      onGetFileContent={async (filePath) => {
+                        const res = await bridge.request<
+                          Extract<BridgeMessage, { type: "get-file-content-request" }>,
+                          Extract<BridgeMessage, { type: "get-file-content-result" }>
+                        >({ type: "get-file-content-request", filePath });
+                        return res.content;
+                      }}
                     />
                   )}
                 </>

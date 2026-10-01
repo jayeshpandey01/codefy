@@ -87,6 +87,16 @@ export type BridgeMessage =
       readonly applied: boolean;
     })
   | (BaseMessage & {
+      readonly type: "get-file-content-request";
+      readonly filePath: string;
+    })
+  | (BaseMessage & {
+      readonly type: "get-file-content-result";
+      readonly filePath: string;
+      readonly content: string | null;
+      readonly error?: string;
+    })
+  | (BaseMessage & {
       readonly type: "run-poc-request";
       readonly findingId: string;
     })

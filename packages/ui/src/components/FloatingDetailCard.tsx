@@ -21,6 +21,8 @@ export interface FloatingDetailCardProps {
   readonly onApplyFix?: (finding: Finding) => Promise<boolean | void> | void;
   readonly onRunPoc?: (finding: Finding) => Promise<boolean>;
   readonly onJumpToLine?: (filePath: string, line: number) => void;
+  /** Optional callback to fetch actual source file content for the diff preview. */
+  readonly onGetFileContent?: (filePath: string) => Promise<string | null>;
 }
 
 type CardTab = "flow" | "remediation" | "rule";
@@ -31,6 +33,7 @@ export function FloatingDetailCard({
   onApplyFix,
   onRunPoc,
   onJumpToLine,
+  onGetFileContent,
 }: FloatingDetailCardProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<CardTab>("flow");
   const [copiedFix, setCopiedFix] = useState(false);
@@ -43,11 +46,33 @@ export function FloatingDetailCard({
   const [fixState, setFixState] = useState<
     "idle" | "applying" | "applied" | "error"
   >("idle");
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [isFetchingContent, setIsFetchingContent] = useState(false);
 
   const steps = finding.trace.steps;
   const entryStep = steps[0];
   const sinkStep = steps[steps.length - 1];
   const jumpTarget = sinkStep ?? entryStep;
+
+  /** Opens the diff preview modal, fetching real file content first if available. */
+  const handleOpenDiffModal = async () => {
+    if (onGetFileContent) {
+      const primaryStep = sinkStep ?? entryStep;
+      const filePath = primaryStep?.filePath;
+      if (filePath) {
+        setIsFetchingContent(true);
+        try {
+          const content = await onGetFileContent(filePath);
+          setFileContent(content);
+        } catch {
+          setFileContent(null);
+        } finally {
+          setIsFetchingContent(false);
+        }
+      }
+    }
+    setIsDiffModalOpen(true);
+  };
 
   const handleApplyFix = async () => {
     if (!onApplyFix) return;
@@ -366,11 +391,16 @@ export function FloatingDetailCard({
         {onApplyFix && (
           <button
             type="button"
-            onClick={() => setIsDiffModalOpen(true)}
-            disabled={fixState === "applying"}
+            onClick={() => { void handleOpenDiffModal(); }}
+            disabled={fixState === "applying" || isFetchingContent}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-vscode-border bg-vscode-btn-secondary hover:bg-vscode-btn-secondary-hover active:bg-vscode-card-hover hover:text-white px-2.5 py-1.5 text-xs font-medium text-vscode-fg transition-all duration-150 shadow-sm cursor-pointer disabled:opacity-50"
           >
-            {fixState === "applying" ? (
+            {isFetchingContent ? (
+              <>
+                <RefreshCwIcon size={12} className="animate-spin text-severity-medium" />
+                <span>Loading…</span>
+              </>
+            ) : fixState === "applying" ? (
               <>
                 <RefreshCwIcon
                   size={12}
@@ -438,6 +468,7 @@ export function FloatingDetailCard({
           isOpen={isDiffModalOpen}
           onClose={() => setIsDiffModalOpen(false)}
           onApplyFix={handleApplyFix}
+          fileContent={fileContent}
         />
       )}
 
