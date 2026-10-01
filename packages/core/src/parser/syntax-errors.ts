@@ -132,7 +132,10 @@ note: |
     }
 
     return findings;
-  } catch {
-    return [];
+  } catch (error) {
+    throw new Error(
+      `Syntax analysis failed for ${filePath} (${languageId}): ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
 }

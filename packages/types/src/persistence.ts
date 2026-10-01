@@ -109,11 +109,6 @@ export interface UserSettings {
   readonly customExcludedDirs: readonly string[];
   readonly maxScannableFiles: number;
 
-  // Cloud Orchestrator & API Credentials
-  readonly orchestratorUrl: string;
-  readonly operatorApiKey: string;
-  readonly adminApiKey: string;
-  readonly authorizationReference: string;
   readonly selectedAiModel: string;
 
   // Telemetry & Storage

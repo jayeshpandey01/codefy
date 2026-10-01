@@ -10,10 +10,10 @@ Complete request and response documentation for the **Static Application Securit
 
 ## Authentication & Headers
 
-All SAST endpoints require API authentication via the `X-API-Key` header:
+Production SAST endpoints require an OIDC access token issued for the Axiom API. The token must contain the configured operator or admin role; operator requests are scoped to targets owned by the token's `sub` claim. Shared `API_KEY` / `ADMIN_API_KEY` credentials are not used by released clients. `X-API-Key` is supported only when running Axiom locally in non-production `AUTH_MODE=api_key` mode.
 
 ```http
-X-API-Key: <OPERATOR_OR_ADMIN_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 Accept: application/json
 ```
@@ -29,7 +29,7 @@ Retrieve supported SAST engines, language capabilities, and static analysis bund
 ```http
 GET /v1/sast/profiles HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Accept: application/json
 ```
 
@@ -118,7 +118,7 @@ Submit an authorized source repository target for SAST analysis.
 ```http
 POST /v1/sast/scans HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 
 {
@@ -132,7 +132,7 @@ Content-Type: application/json
 ```http
 POST /v1/sast/scans HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 
 {
@@ -146,7 +146,7 @@ Content-Type: application/json
 ```http
 POST /v1/sast/scans HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 
 {
@@ -180,7 +180,7 @@ Check the real-time execution status of an active or completed SAST job.
 ```http
 GET /v1/sast/scans/70184604-f02e-4b3c-ac6a-26a2f435d298 HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Accept: application/json
 ```
 
@@ -209,7 +209,7 @@ Cancel an in-progress or queued static analysis job and release scanner resource
 ```http
 POST /v1/sast/scans/70184604-f02e-4b3c-ac6a-26a2f435d298/cancel HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 ```
 
@@ -238,7 +238,7 @@ Retrieve normalized vulnerability findings, line numbers, code snippets, and rem
 ```http
 GET /v1/sast/scans/70184604-f02e-4b3c-ac6a-26a2f435d298/result HTTP/1.1
 Host: axiom-xjkc.onrender.com
-X-API-Key: <YOUR_API_KEY>
+Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Accept: application/json
 ```
 

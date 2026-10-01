@@ -1,6 +1,17 @@
-# Plan: Connect the Desktop App to the Backend the Way VS Code Does
+# Desktop-to-Axiom Connection: Implementation Record
 
-**Status:** proposed · **Scope:** `apps/desktop-app`, `packages/core`, `packages/ui`, `apps/vscode-extension` (shared router + two latent bugs)
+**Status:** implemented · **Scope:** desktop, VS Code extension, shared UI/core, Axiom API, and website account gateway.
+
+The proposal below is retained as historical context and is superseded by this implementation:
+
+- Desktop and VS Code use the fixed `DEFAULT_ORCHESTRATOR_URL` and the signed-in user's OIDC bearer session. They no longer read operator/admin keys or custom orchestrator URLs from settings, extension configuration, or workspace `.env` files.
+- Axiom validates the bearer token's signature, issuer, audience, subject, and configured role. OIDC `sub` owns each operator-created target; target, scan, result, and dashboard reads are scoped to that subject. Other operator APIs are denied by default until explicitly tenant-scoped. Admin principals retain platform-wide access.
+- Creating a target requires both an authorization reference and explicit user attestation. The consent must be repeated when the target/workspace changes.
+- Historical targets with no `owner_subject` remain admin-only. Existing ownership must be backfilled from a verified mapping; it is never inferred from `owner_reference`.
+- The website account BFF now accepts an operation allowlist and user bearer token over HTTPS; its former browser-shipped AES/HMAC shared keys were removed. Axiom upstream access is fixed by server-side configuration, not by client URLs.
+- Production Axiom must stay in `AUTH_MODE=oidc`. Development API-key mode remains only for local tests/controller operations and must never be used to configure the distributed apps.
+
+## Historical Proposal (Superseded)
 
 The desktop app is already half-connected. Sign-in and chat work because they call the AI gateway straight from the webview. Cloud SAST/DAST scans don't work, and simply lifting the block won't fix them: the orchestrator server refuses requests from any browser origin, the Tauri webview included. On top of that, neither app has a working, user-editable backend URL setting.
 

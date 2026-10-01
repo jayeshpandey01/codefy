@@ -18,6 +18,7 @@
     "**/coverage": true
   },
   "git.autorefresh": true,
-  "git.autoStash": false
+  "git.autoStash": false,
+  "files.autoSave": "off"
 }
 

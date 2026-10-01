@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
 import {
+  DEFAULT_ORCHESTRATOR_URL,
   GatewayAuthClient,
   ScanOrchestratorClient,
-  cleanCredential,
   handleOrchestratorMessage,
 } from "@whoami/core/node";
 import {
   type BridgeMessage,
+  type AuthSession,
   type Finding,
   type UpdateNotice,
   type UserAccount,
@@ -33,6 +34,7 @@ import * as path from "node:path";
  * the shape entirely; the extension host just stores and returns it.
  */
 const PERSISTENCE_KEY = "whoami.persistence.v1";
+const AUTH_SESSION_SECRET_KEY = "whoami.auth.session.v1";
 const PERSISTENCE_STORES = [
   "kv_store",
   "workspaces",
@@ -53,65 +55,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function loadEnvFile(): Record<string, string> {
   const env: Record<string, string> = {};
-  const searchDirs = new Set<string>();
+  const candidates: string[] = [];
 
   const folders = vscode.workspace.workspaceFolders;
   if (folders) {
     for (const f of folders) {
-      let d = f.uri.fsPath;
-      for (let i = 0; i < 5; i++) {
-        searchDirs.add(d);
-        const parent = path.dirname(d);
-        if (parent === d) break;
-        d = parent;
-      }
+      candidates.push(path.join(f.uri.fsPath, ".env"));
+      candidates.push(path.join(f.uri.fsPath, ".env.local"));
     }
   }
+  candidates.push(path.join(process.cwd(), ".env"));
 
-  let cwd = process.cwd();
-  for (let i = 0; i < 5; i++) {
-    searchDirs.add(cwd);
-    const parent = path.dirname(cwd);
-    if (parent === cwd) break;
-    cwd = parent;
-  }
-
-  try {
-    let curDir = __dirname;
-    for (let i = 0; i < 5; i++) {
-      searchDirs.add(curDir);
-      const parent = path.dirname(curDir);
-      if (parent === curDir) break;
-      curDir = parent;
-    }
-  } catch {
-    // Ignore __dirname access issues
-  }
-
-  // Load .env first, then let .env.local override it (standard dotenv precedence)
-  for (const fileName of [".env", ".env.local"]) {
-    for (const dir of searchDirs) {
-      const filePath = path.join(dir, fileName);
-      try {
-        if (fs.existsSync(filePath)) {
-          const content = fs.readFileSync(filePath, "utf-8");
-          for (const line of content.split("\n")) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith("#")) continue;
-            const eqIdx = trimmed.indexOf("=");
-            if (eqIdx > 0) {
-              const key = trimmed.slice(0, eqIdx).trim();
-              const val = cleanCredential(trimmed.slice(eqIdx + 1).trim());
-              if (key && val) {
-                env[key] = val;
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, "utf-8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx > 0) {
+            const key = trimmed.slice(0, eqIdx).trim();
+            const val = trimmed
+              .slice(eqIdx + 1)
+              .trim()
+              .replace(/^['"]|['"]$/g, "");
+            if (key && !(key in env)) {
+              env[key] = val;
+              if (!process.env[key]) {
                 process.env[key] = val;
               }
             }
           }
         }
-      } catch {
-        // Ignore non-readable paths
       }
+    } catch {
+      // Ignore unreadable .env file
     }
   }
 
@@ -122,7 +101,6 @@ export class ExtensionBridge {
   private readonly registry = new RequestRegistry();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly remoteFindingsById = new Map<string, Finding>();
-  private orchestratorClient: ScanOrchestratorClient;
   // Real Node.js, no browser CSP -- unlike the webview (connect-src 'none'
   // by design, see getWebviewHtml.ts), the extension host can make direct
   // HTTPS calls to the AI Gateway's /developer/auth/* endpoints. The
@@ -138,20 +116,10 @@ export class ExtensionBridge {
      * rather than straight out of this constructor. */
     private pendingUpdateNotice: UpdateNotice | null = null,
   ) {
-    this.orchestratorClient = this.createOrchestratorClient();
-
-    const envWatcher = vscode.workspace.createFileSystemWatcher("**/.env*");
     this.disposables.push(
-      envWatcher,
-      envWatcher.onDidChange(() => {
-        this.orchestratorClient = this.createOrchestratorClient();
-      }),
-      envWatcher.onDidCreate(() => {
-        this.orchestratorClient = this.createOrchestratorClient();
-      }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("whoami.orchestrator")) {
-          this.orchestratorClient = this.createOrchestratorClient();
+          // Configuration will be re-read on next createOrchestratorClient() call
         }
       }),
       this.panel.webview.onDidReceiveMessage((message: BridgeMessage) => {
@@ -168,42 +136,62 @@ export class ExtensionBridge {
     this.remoteFindingsById.set(finding.id, finding);
   }
 
-  private createOrchestratorClient(): ScanOrchestratorClient {
+  private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
     const env = loadEnvFile();
     const config = vscode.workspace.getConfiguration("whoami");
     const baseUrl =
-      cleanCredential(config.get<string>("orchestrator.url")) ||
-      cleanCredential(process.env.ORCHESTRATOR_URL) ||
+      config.get<string>("orchestrator.url") ||
+      process.env.ORCHESTRATOR_URL ||
       env.ORCHESTRATOR_URL ||
-      "https://axiom-xjkc.onrender.com";
+      DEFAULT_ORCHESTRATOR_URL;
     const apiKey =
-      cleanCredential(config.get<string>("orchestrator.apiKey")) ||
-      cleanCredential(process.env.API_KEY) ||
+      config.get<string>("orchestrator.apiKey") ||
+      process.env.API_KEY ||
       env.API_KEY ||
-      undefined;
+      "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
     const adminApiKey =
-      cleanCredential(config.get<string>("orchestrator.adminApiKey")) ||
-      cleanCredential(process.env.ADMIN_API_KEY) ||
+      config.get<string>("orchestrator.adminApiKey") ||
+      process.env.ADMIN_API_KEY ||
       env.ADMIN_API_KEY ||
-      undefined;
+      "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
 
-    const mask = (key?: string) =>
-      key ? `${key.slice(0, 4)}...${key.slice(-4)} (len ${key.length})` : "none";
-
-    console.info(
-      `[whoami:bridge] Orchestrator client initialized (url: ${baseUrl}, apiKey: ${mask(apiKey)}, adminApiKey: ${mask(adminApiKey)})`,
-    );
+    const session = await this.readAuthSession();
 
     return new ScanOrchestratorClient({
       baseUrl,
-      apiKey,
-      adminApiKey,
+      apiKey: apiKey || undefined,
+      adminApiKey: adminApiKey || undefined,
+      jwtToken: session?.accessToken,
     });
   }
 
-  private getOrchestratorClient(): ScanOrchestratorClient {
-    this.orchestratorClient = this.createOrchestratorClient();
-    return this.orchestratorClient;
+  private async readAuthSession(): Promise<AuthSession | null> {
+    const raw = await this.context.secrets.get(AUTH_SESSION_SECRET_KEY);
+    if (!raw) return null;
+    try {
+      const value: unknown = JSON.parse(raw);
+      if (
+        typeof value === "object" && value !== null &&
+        typeof (value as AuthSession).accessToken === "string" &&
+        typeof (value as AuthSession).expiresAt === "number"
+      ) return value as AuthSession;
+    } catch {
+      // Remove corrupt secure state and require a fresh sign-in.
+    }
+    await this.context.secrets.delete(AUTH_SESSION_SECRET_KEY);
+    return null;
+  }
+
+  private async saveAuthSession(session: AuthSession | null): Promise<void> {
+    if (session) {
+      await this.context.secrets.store(AUTH_SESSION_SECRET_KEY, JSON.stringify(session));
+    } else {
+      await this.context.secrets.delete(AUTH_SESSION_SECRET_KEY);
+    }
+  }
+
+  private getOrchestratorClient(): Promise<ScanOrchestratorClient> {
+    return this.createOrchestratorClient();
   }
 
   /** Invoked by the whoami.scanWorkspace command -- not a reply to a webview request. */
@@ -255,7 +243,10 @@ export class ExtensionBridge {
           return;
         }
         case "scan-workspace-request":
-          await this.handleScanWorkspace(message.requestId, message.folderPath);
+          await this.handleScanWorkspace(message.requestId, message.folderPath, message.rules, {
+            customExcludedDirs: message.customExcludedDirs,
+            maxScannableFiles: message.maxScannableFiles,
+          });
           return;
         case "get-trace-request":
           this.handleGetTrace(message.findingId, message.requestId);
@@ -342,6 +333,9 @@ export class ExtensionBridge {
         case "auth-create-api-key-result":
         case "auth-revoke-api-key-result":
         case "auth-get-profile-result":
+        case "auth-session-load-result":
+        case "auth-session-save-result":
+        case "auth-session-clear-result":
         case "persistence-load-result":
         case "update-notice":
           // Host -> webview only; a webview would never legitimately send
@@ -413,6 +407,24 @@ export class ExtensionBridge {
             this.post({ type: "update-notice", notice: this.pendingUpdateNotice });
             this.pendingUpdateNotice = null;
           }
+          return;
+        }
+        case "auth-session-load-request": {
+          this.post({
+            type: "auth-session-load-result",
+            session: await this.readAuthSession(),
+            requestId: message.requestId,
+          });
+          return;
+        }
+        case "auth-session-save-request": {
+          await this.saveAuthSession(message.session);
+          this.post({ type: "auth-session-save-result", requestId: message.requestId });
+          return;
+        }
+        case "auth-session-clear-request": {
+          await this.saveAuthSession(null);
+          this.post({ type: "auth-session-clear-result", requestId: message.requestId });
           return;
         }
         case "auth-login-request": {
@@ -580,6 +592,8 @@ export class ExtensionBridge {
   private async handleScanWorkspace(
     requestId: string | undefined,
     explicitRootPath?: string,
+    rules?: import("@whoami/types").RuleToggleConfig,
+    collectionOptions?: import("../engine/engineHost.js").WorkspaceCollectionOptions,
   ): Promise<void> {
     const rootPath =
       explicitRootPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -600,6 +614,7 @@ export class ExtensionBridge {
     // webview informed in the meantime.
     const resultPromise = this.registry.register<{
       findings: readonly Finding[];
+      coverage: import("@whoami/types").ScanCoverage;
     }>(scanId, 10 * 60_000);
 
     this.engineHost
@@ -610,7 +625,7 @@ export class ExtensionBridge {
           total: progress.total,
           requestId,
         });
-      })
+      }, rules, collectionOptions)
       .then((result) => this.registry.resolve(scanId, result))
       .catch((error: unknown) => {
         this.registry.reject(
@@ -624,6 +639,7 @@ export class ExtensionBridge {
       this.post({
         type: "scan-workspace-result",
         findings: result.findings,
+        coverage: result.coverage,
         requestId,
       });
     } catch (error) {

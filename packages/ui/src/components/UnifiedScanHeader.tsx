@@ -221,7 +221,6 @@ export interface UnifiedScanHeaderProps {
   readonly onScanOrchestrator?: (params: {
     target: string;
     profiles: (AllScanProfile | "secret-scan")[];
-    authRef?: string;
   }) => void;
   readonly isOrchestratorScanning?: boolean;
   readonly orchestratorProgress?: {
@@ -647,6 +646,7 @@ export function UnifiedScanHeader({
     });
   };
 
+
   return (
     <header className="relative flex flex-col border-b border-vscode-border bg-vscode-header text-vscode-fg select-none shrink-0 font-sans shadow-md w-full min-w-0">
       {/* Left overflow shadow */}
@@ -876,6 +876,7 @@ export function UnifiedScanHeader({
                 )}
               </div>
 
+
               {/* Cloud SAST Engine Dropdown */}
               <div className="relative min-w-[110px] max-w-[130px] shrink" ref={sastMenuRef}>
                 <button
@@ -955,7 +956,7 @@ export function UnifiedScanHeader({
                   onClick={handleTriggerCloudSastScan}
                   disabled={isCloudSastScanning || selectedSastTasks.length === 0}
                   aria-label="Scan Cloud SAST"
-                  title="Run Joern CPG, Semgrep & TruffleHog in Cloud"
+                  title="Run cloud SAST for this workspace"
                   className="flex items-center justify-center rounded-md bg-vscode-card-selected hover:bg-vscode-primary border border-vscode-focus/50 px-2.5 py-1.5 text-xs font-semibold text-severity-medium transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
                   {isCloudSastScanning ? (
@@ -981,6 +982,7 @@ export function UnifiedScanHeader({
                   className="flex-1 min-w-0 bg-transparent text-vscode-fg outline-none font-mono text-xs placeholder-vscode-muted truncate"
                 />
               </div>
+
 
               {/* Multi-Task Checkbox Dropdown Selector */}
               <div className="relative min-w-[110px] max-w-[130px] shrink" ref={taskMenuRef}>
@@ -1081,7 +1083,7 @@ export function UnifiedScanHeader({
                   onClick={handleTriggerOrchestratorScan}
                   disabled={isOrchestratorScanning || selectedTasks.length === 0}
                   aria-label="Scan Target"
-                  title={isOrchestratorScanning ? "Scanning Target… (Pause)" : "Scan Target"}
+                  title={isOrchestratorScanning ? "Scanning Target… (Pause)" : "Start scan"}
                   className="flex items-center justify-center rounded-md bg-[#107C41] hover:bg-[#0E6C38] active:bg-[#0A4D27] px-2.5 py-1.5 text-xs font-semibold text-white transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
                   {isOrchestratorScanning ? (

@@ -1,4 +1,5 @@
 import type { EngineScanMetrics, Finding, SecretFinding } from "@whoami/types";
+import type { RuleToggleConfig } from "@whoami/types";
 
 import {
   createAstGrepAdapter,
@@ -35,8 +36,34 @@ export interface AnalysisEngine {
    * Runs multi-language syntax error detection, ast-grep security rules,
    * the taint pipeline, and the secret scanner against one file's source text.
    */
-  scanFile(filePath: string, sourceCode: string): Promise<ScanResult>;
+  scanFile(
+    filePath: string,
+    sourceCode: string,
+    rules?: Partial<RuleToggleConfig>,
+  ): Promise<ScanResult>;
 }
+
+const DEFAULT_RULE_TOGGLES: RuleToggleConfig = {
+  commandInjection: true,
+  sqlInjection: true,
+  ssrf: true,
+  pathTraversal: true,
+  codeInjection: true,
+  secretDetection: true,
+};
+
+const RULE_TOGGLE_BY_ID: Record<string, keyof RuleToggleConfig> = {
+  "js-command-injection-exec": "commandInjection",
+  "py-command-injection": "commandInjection",
+  "js-sql-injection-string-concat": "sqlInjection",
+  "py-sql-injection": "sqlInjection",
+  "js-ssrf-unvalidated-url": "ssrf",
+  "py-ssrf": "ssrf",
+  "js-path-traversal": "pathTraversal",
+  "py-path-traversal": "pathTraversal",
+  "js-code-injection": "codeInjection",
+  "py-code-injection": "codeInjection",
+};
 
 function resolveDefaultLlmProvider(): ILlmTriageProvider {
   if (process.env["OPENROUTER_API_KEY"]) {
@@ -61,7 +88,12 @@ export function createAnalysisEngine(
   }
 
   return {
-    async scanFile(filePath: string, sourceCode: string): Promise<ScanResult> {
+    async scanFile(
+      filePath: string,
+      sourceCode: string,
+      ruleOverrides: Partial<RuleToggleConfig> = {},
+    ): Promise<ScanResult> {
+      const enabledRules = { ...DEFAULT_RULE_TOGGLES, ...ruleOverrides };
       const scanStartTime = Date.now();
       const scanId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const scanLogger = logger?.with({ scanId, filePath });
@@ -99,7 +131,11 @@ export function createAnalysisEngine(
       }
 
       if (languageId === "python") {
-        findings.push(...(await detectPythonSecurityFindings(filePath, sourceCode)));
+        const pythonFindings = await detectPythonSecurityFindings(filePath, sourceCode);
+        findings.push(...pythonFindings.filter((finding) => {
+          const toggle = RULE_TOGGLE_BY_ID[finding.ruleId];
+          return toggle ? enabledRules[toggle] : true;
+        }));
       }
 
       let astGrepDurationMs = 0;
@@ -112,9 +148,14 @@ export function createAnalysisEngine(
         languageId === "javascript";
       if (isJsTs) {
         const matchStart = Date.now();
+        const enabledAstRules = ALL_RULES.filter((ruleYaml) => {
+          const ruleId = /^id:\s*(\S+)/m.exec(ruleYaml)?.[1];
+          const toggle = ruleId ? RULE_TOGGLE_BY_ID[ruleId] : undefined;
+          return !toggle || enabledRules[toggle];
+        });
         const allMatches = astGrepAdapter.findMatchesForAllRules
-          ? astGrepAdapter.findMatchesForAllRules(sourceCode, ALL_RULES)
-          : ALL_RULES.flatMap((ruleYaml) =>
+          ? astGrepAdapter.findMatchesForAllRules(sourceCode, enabledAstRules)
+          : enabledAstRules.flatMap((ruleYaml) =>
               astGrepAdapter.findMatches(sourceCode, ruleYaml),
             );
         astGrepDurationMs = Date.now() - matchStart;
@@ -169,7 +210,9 @@ export function createAnalysisEngine(
       }
 
       const secretStart = Date.now();
-      const secrets = scanForSecrets(sourceCode, filePath);
+      const secrets = enabledRules.secretDetection
+        ? scanForSecrets(sourceCode, filePath)
+        : [];
       const secretScanDurationMs = Date.now() - secretStart;
 
       for (const secret of secrets) {

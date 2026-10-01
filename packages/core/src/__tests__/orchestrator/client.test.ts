@@ -96,7 +96,7 @@ describe("ScanOrchestratorClient", () => {
   // 2. Authentication Routing & Role Enforcement
   // ==========================================================================
 
-  it("routes ADMIN_API_KEY when registering targets", async () => {
+  it("routes the signed-in user's bearer token when registering targets", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
@@ -110,8 +110,7 @@ describe("ScanOrchestratorClient", () => {
 
     const client = new ScanOrchestratorClient({
       baseUrl: "https://test-orchestrator.local",
-      apiKey: "operator-key-1",
-      adminApiKey: "admin-key-99",
+      jwtToken: "signed-in-user-token",
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
@@ -119,6 +118,7 @@ describe("ScanOrchestratorClient", () => {
       value: "example.com",
       owner_reference: "Security Team",
       authorization_reference: "AUTH-123",
+      authorization_confirmed: true,
     };
 
     const target = await client.registerTarget(targetPayload);
@@ -129,7 +129,8 @@ describe("ScanOrchestratorClient", () => {
     const headers = init.headers as Record<string, string>;
     expect(url).toBe("https://test-orchestrator.local/v1/targets");
     expect(init.method).toBe("POST");
-    expect(headers["X-API-Key"]).toBe("admin-key-99");
+    expect(headers.Authorization).toBe("Bearer signed-in-user-token");
+    expect(headers["X-API-Key"]).toBeUndefined();
     expect(JSON.parse(init.body as string)).toEqual({
       ...targetPayload,
       target_type: "network",
@@ -161,7 +162,7 @@ describe("ScanOrchestratorClient", () => {
     expect(headers["Authorization"]).toBe("Bearer jwt.header.payload.signature");
   });
 
-  it("throws clear error when admin endpoint called without admin key", async () => {
+  it("requires a signed-in user for target registration", async () => {
     const client = new ScanOrchestratorClient({
       baseUrl: "https://test-orchestrator.local",
       fetchFn: vi.fn() as unknown as typeof fetch,
@@ -172,10 +173,9 @@ describe("ScanOrchestratorClient", () => {
         value: "example.com",
         owner_reference: "Ops",
         authorization_reference: "AUTH-1",
+        authorization_confirmed: true,
       }),
-    ).rejects.toThrow(
-      "Admin authentication required but no ADMIN_API_KEY or Bearer token configured",
-    );
+    ).rejects.toThrow("Sign in to use cloud scans");
   });
 
   // ==========================================================================
@@ -204,6 +204,7 @@ describe("ScanOrchestratorClient", () => {
       value: "https://scanme.nmap.org:8080/api/v1?test=1#frag",
       owner_reference: "SecOps",
       authorization_reference: "AUTH-456",
+      authorization_confirmed: true,
     });
 
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -234,6 +235,7 @@ describe("ScanOrchestratorClient", () => {
       value: "/Users/test/project",
       owner_reference: "SecOps",
       authorization_reference: "AUTH-789",
+      authorization_confirmed: true,
     });
 
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -789,6 +791,7 @@ describe("ScanOrchestratorClient", () => {
         value: "",
         owner_reference: "Sec",
         authorization_reference: "A-1",
+        authorization_confirmed: true,
       });
       expect.unreachable("Should have thrown 422 error");
     } catch (err: unknown) {

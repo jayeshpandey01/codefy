@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { UnifiedScanHeader } from "../components/UnifiedScanHeader.js";
+
+afterEach(cleanup);
 
 describe("UnifiedScanHeader", () => {
   it("renders Local Scan mode controls by default", () => {
@@ -93,6 +95,7 @@ describe("UnifiedScanHeader", () => {
 
     // Run orchestrator scan
     const runBtn = screen.getByRole("button", { name: "Scan Target" });
+    expect(runBtn.hasAttribute("disabled")).toBe(false);
     fireEvent.click(runBtn);
 
     expect(handleScanOrchestrator).toHaveBeenCalledTimes(1);
@@ -102,6 +105,8 @@ describe("UnifiedScanHeader", () => {
         profiles: expect.arrayContaining(["network-portscan"]),
       }),
     );
+    expect(screen.queryByLabelText("Authorization reference")).toBeNull();
+    expect(screen.queryByLabelText("I am authorized to assess this target")).toBeNull();
   });
 
   it("triggers onAnalysisPipelineModeChange when switching between Bugs and Full Codebase view", () => {
@@ -210,6 +215,7 @@ describe("UnifiedScanHeader", () => {
 
     // Trigger Cloud SAST
     const sastBtn = screen.getByRole("button", { name: "Scan Cloud SAST" });
+    expect(sastBtn.hasAttribute("disabled")).toBe(false);
     fireEvent.click(sastBtn);
 
     expect(handleScanCloudSast).toHaveBeenCalledTimes(1);

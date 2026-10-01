@@ -38,7 +38,7 @@ self.onmessage = (event: MessageEvent<EngineWorkerInboundMessage>): void => {
   const message = event.data;
   if (message.kind !== "scan-request") return;
 
-  void runScan(message.requestId, message.files, message.rootPath);
+  void runScan(message.requestId, message.files, message.rootPath, message.rules);
 };
 
 interface EngineRuntime {
@@ -81,6 +81,7 @@ async function runScan(
   requestId: string,
   files: readonly EngineWorkerFileInput[],
   rootPath: string,
+  rules?: import("@whoami/types").RuleToggleConfig,
 ): Promise<void> {
   try {
     const startedAt = Date.now();
@@ -109,7 +110,7 @@ async function runScan(
           if (idx === 0) {
             diagnostic(requestId, "info", `Initializing parsers and scanning first file (${file.path}).`);
           }
-          const result = await runtime.engine.scanFile(file.path, file.content);
+          const result = await runtime.engine.scanFile(file.path, file.content, rules);
           findings.push(...result.findings);
           secrets.push(...result.secrets);
           if (result.findings.length === 0 && result.secrets.length === 0) {
@@ -169,7 +170,7 @@ async function runScan(
     );
     diagnostic(requestId, "info", "Workspace graph built; returning scan results.");
 
-    postOutbound({ kind: "scan-result", requestId, findings, secrets, workspaceGraph });
+    postOutbound({ kind: "scan-result", requestId, findings, secrets, workspaceGraph, filesFailed: failedFiles });
   } catch (err) {
     diagnostic(requestId, "error", `Worker scan aborted: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     postOutbound({

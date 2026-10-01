@@ -224,6 +224,7 @@ describe.skipIf(!RUN_LIVE_TESTS)("Live API Integration with axiom-xjkc.onrender.
         value: testDomain,
         owner_reference: "CI-Integration-Test",
         authorization_reference: "AUTH-CI-TEST-RUNNER",
+        authorization_confirmed: true,
       });
 
       expect(target.id).toBeDefined();
@@ -288,6 +289,7 @@ describe.skipIf(!RUN_LIVE_TESTS)("Live API Integration with axiom-xjkc.onrender.
         value: testTarget,
         owner_reference: "CI-Integration-Test-SAST",
         authorization_reference: "AUTH-CI-SAST",
+        authorization_confirmed: true,
       });
 
       expect(target.id).toBeDefined();

@@ -47,6 +47,7 @@ export interface TargetCreate {
   value: string;
   owner_reference: string;
   authorization_reference: string;
+  authorization_confirmed: boolean;
   target_type?: "network" | "source_code";
 }
 

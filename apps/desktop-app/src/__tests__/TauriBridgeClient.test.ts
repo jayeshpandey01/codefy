@@ -2,14 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeMessage } from "@whoami/types";
 
 const tauriFetch = vi.fn();
-const settings = {
-  orchestratorUrl: "",
-  operatorApiKey: "op-key",
-  adminApiKey: "",
+const authSession = {
+  accessToken: "signed-in-user-token",
+  tokenType: "bearer",
+  userId: "user-1",
+  email: "user@example.test",
+  name: "Test User",
+  tier: "community" as const,
+  expiresAt: Date.now() + 60_000,
 };
 
 vi.mock("@tauri-apps/plugin-http", () => ({ fetch: (...args: unknown[]) => tauriFetch(...args) }));
-vi.mock("../db/preferencesRepo.js", () => ({ getSettings: async () => settings }));
+vi.mock("../db/authRepo.js", () => ({ getAuthSession: async () => authSession }));
 vi.mock("../bridge/updater.js", () => ({
   checkForAppUpdate: vi.fn(async () => undefined),
   checkForVersionChange: vi.fn(async () => null),
@@ -31,10 +35,9 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("TauriBridgeClient orchestrator requests", () => {
   beforeEach(() => {
     tauriFetch.mockReset();
-    settings.orchestratorUrl = "";
   });
 
-  it("sends orchestrator requests through the http plugin's fetch with the operator key", async () => {
+  it("sends orchestrator requests with the backend api key", async () => {
     tauriFetch.mockResolvedValue(jsonResponse([{ id: "t-1" }]));
     const bridge = new TauriBridgeClient();
 
@@ -47,43 +50,28 @@ describe("TauriBridgeClient orchestrator requests", () => {
     expect(tauriFetch).toHaveBeenCalledOnce();
     const [url, init] = tauriFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/^https:\/\/axiom-xjkc\.onrender\.com\//);
-    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "op-key" });
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-API-Key": "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
+    });
   });
 
-  it("uses a valid URL from Settings", async () => {
-    settings.orchestratorUrl = "http://localhost:8000";
-    tauriFetch.mockResolvedValue(jsonResponse([]));
-    const bridge = new TauriBridgeClient();
-
-    await bridge.request({ type: "list-scans-request" } as BridgeMessage);
-
-    expect(String(tauriFetch.mock.calls[0]![0])).toMatch(/^http:\/\/localhost:8000\//);
-  });
-
-  it("sends the admin key for admin endpoints such as register-target", async () => {
-    settings.adminApiKey = "admin-key";
+  it("handles target registration directly through backend credentials", async () => {
     tauriFetch.mockResolvedValue(jsonResponse({ id: "t-1" }));
     const bridge = new TauriBridgeClient();
 
     await bridge.request({
       type: "register-target-request",
-      target: { value: "example.com" },
+      target: {
+        value: "example.com",
+        owner_reference: "Test User",
+        authorization_reference: "AUTH-TEST-1",
+        authorization_confirmed: true,
+      },
     } as unknown as BridgeMessage);
 
     expect((tauriFetch.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
-      "X-API-Key": "admin-key",
+      "X-API-Key": "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
     });
-    settings.adminApiKey = "";
-  });
-
-  it("rejects a disallowed Settings URL without sending anything", async () => {
-    settings.orchestratorUrl = "https://evil.example.com";
-    const bridge = new TauriBridgeClient();
-
-    await expect(
-      bridge.request({ type: "list-targets-request" } as BridgeMessage),
-    ).rejects.toThrow(/not an allowed orchestrator host/);
-    expect(tauriFetch).not.toHaveBeenCalled();
   });
 
   it("maps HTTP errors to an error message carrying the requestId", async () => {

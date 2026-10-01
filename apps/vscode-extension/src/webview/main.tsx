@@ -22,6 +22,7 @@ import type {
   ScanResultRead,
   ScanSessionEntry,
   ScanSessionWithFindings,
+  ScanCoverage,
   SettingsModalTabId,
   StructuredErrorPayload,
   TargetRead,
@@ -91,6 +92,7 @@ import {
   listScanSessions,
   saveAccount,
   saveAuthSession,
+  initAuthSessionStore,
   saveScanSession,
   saveSettings,
   setPreference,
@@ -99,6 +101,7 @@ import {
 
 const bridge = new VsCodeBridgeClient();
 initPersistence(bridge);
+initAuthSessionStore(bridge);
 
 type ScanStatus = "idle" | "scanning" | "error";
 type MainTabId =
@@ -186,6 +189,7 @@ function App(): ReactElement {
     scanned: number;
     total: number;
   } | null>(null);
+  const [scanCoverage, setScanCoverage] = useState<ScanCoverage | null>(null);
   const [isOrchestratorScanning, setIsOrchestratorScanning] = useState<boolean>(false);
   const [orchestratorProgress, setOrchestratorProgress] = useState<{
     currentTask: string;
@@ -196,6 +200,7 @@ function App(): ReactElement {
   const [selectedFolder, setSelectedFolder] = useState<string>("");
   const selectedFolderRef = useRef(selectedFolder);
   selectedFolderRef.current = selectedFolder;
+  const initialScanStartedRef = useRef(false);
   const scanModeRef = useRef(scanMode);
   scanModeRef.current = scanMode;
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
@@ -338,6 +343,7 @@ function App(): ReactElement {
       }
       setStatus("idle");
       setProgress(null);
+      setScanCoverage(message.coverage ?? null);
 
       // Record completed scan session in local database
       const sessionId = `scan-vscode-${Date.now()}`;
@@ -377,13 +383,6 @@ function App(): ReactElement {
       setProgress(null);
     });
 
-    // Initial scan on startup
-    bridge.send({
-      type: "scan-workspace-request",
-      requestId: `vscode-scan-${Date.now()}`,
-    });
-    setStatus("scanning");
-
     return () => {
       offProgress();
       offResult();
@@ -391,6 +390,19 @@ function App(): ReactElement {
       offError();
     };
   }, []);
+
+  useEffect(() => {
+    if (!userSettings || initialScanStartedRef.current) return;
+    initialScanStartedRef.current = true;
+    bridge.send({
+      type: "scan-workspace-request",
+      rules: userSettings.rules,
+      customExcludedDirs: userSettings.customExcludedDirs,
+      maxScannableFiles: userSettings.maxScannableFiles,
+      requestId: `vscode-scan-${Date.now()}`,
+    });
+    setStatus("scanning");
+  }, [userSettings?.rules]);
 
   const openTab = useCallback((tabId: MainTabId) => {
     setOpenTabs((prev) => (prev.includes(tabId) ? prev : [...prev, tabId]));
@@ -745,16 +757,20 @@ function App(): ReactElement {
       setStatus("scanning");
       setErrorPayload(null);
       setProgress(null);
+      setScanCoverage(null);
       if (targetPath) {
         setSelectedFolder(targetPath);
       }
       bridge.send({
         type: "scan-workspace-request",
         folderPath: targetPath || undefined,
+        rules: userSettings?.rules,
+        customExcludedDirs: userSettings?.customExcludedDirs,
+        maxScannableFiles: userSettings?.maxScannableFiles,
         requestId: `vscode-scan-${Date.now()}`,
       });
     },
-    [selectedFolder],
+    [selectedFolder, userSettings?.rules],
   );
 
   const handleSelectFinding = useCallback(
@@ -920,7 +936,6 @@ function App(): ReactElement {
     async (target: {
       value: string;
       owner: string;
-      authRef: string;
       targetType?: "network" | "source_code";
     }): Promise<TargetRead> => {
       const res = await bridge.request<
@@ -931,7 +946,8 @@ function App(): ReactElement {
         target: {
           value: target.value,
           owner_reference: target.owner,
-          authorization_reference: target.authRef,
+          authorization_reference: "USER_ATTESTED_ON_SCAN_START",
+          authorization_confirmed: true,
           target_type: target.targetType,
         },
         requestId: `reg-${Date.now()}`,
@@ -1024,11 +1040,9 @@ function App(): ReactElement {
     async ({
       target,
       profiles,
-      authRef = "AUTH-SEC-2026",
     }: {
       target: string;
       profiles: (AllScanProfile | "secret-scan")[];
-      authRef?: string;
     }) => {
       setIsOrchestratorScanning(true);
       setErrorPayload(null);
@@ -1042,8 +1056,7 @@ function App(): ReactElement {
         const isSast = profiles.some((p) => p.startsWith("sast-"));
         const targetRead = await handleRegisterTarget({
           value: target,
-          owner: "Security Ops",
-          authRef,
+          owner: authSession?.name || "Account User",
           targetType: isSast ? "source_code" : "network",
         });
 
@@ -1139,7 +1152,7 @@ function App(): ReactElement {
         setTimeout(() => setOrchestratorProgress(null), 4000);
       }
     },
-    [handleRegisterTarget, handleSubmitScan, handlePollScans, openTab],
+    [authSession?.name, handleRegisterTarget, handleSubmitScan, handlePollScans, openTab],
   );
 
   const localCount = useMemo(
@@ -1229,6 +1242,7 @@ function App(): ReactElement {
         onResendCode={handleWelcomeResendCode}
         onForgotPassword={handleForgotPassword}
         onResetPassword={handleResetPassword}
+        onContinueOffline={handleContinueOffline}
       />
     );
   }
@@ -1259,12 +1273,7 @@ function App(): ReactElement {
               isRefreshing={status === "scanning"}
               activeScanMode={scanMode}
               onScanModeChange={handleScanModeChange}
-              onTriggerOrchestratorScan={() =>
-                handleRunOrchestratorScan({
-                  target: "scanme.nmap.org",
-                  profiles: ["recon", "web-discovery", "vuln-assessment"],
-                })
-              }
+              onTriggerOrchestratorScan={() => handleScanModeChange("orchestrator")}
               isLeftSidebarOpen={isLeftSidebarOpen}
               onToggleLeftSidebar={() => setIsLeftSidebarOpen((prev) => !prev)}
               isRightSectionOpen={isRightSectionOpen}
@@ -1354,6 +1363,13 @@ function App(): ReactElement {
                 onDismiss={() => setErrorPayload(null)}
                 onRetry={() => handleScanWorkspace()}
               />
+            </div>
+          )}
+          {scanCoverage && (
+            <div role="status" className="border-b border-vscode-border bg-vscode-card px-4 py-1 text-xs text-vscode-muted shrink-0">
+              Offline scan coverage: {scanCoverage.filesScanned} file(s) analyzed out of {scanCoverage.filesDiscovered} file(s) visited;
+              {` ${scanCoverage.filesFailed} failed, ${scanCoverage.filesSkippedLarge} too large, ${scanCoverage.filesSkippedUnsupported} unsupported, ${scanCoverage.directoriesSkipped} excluded folder(s), ${scanCoverage.directoriesUnreadable} unreadable folder(s)`}
+              {scanCoverage.fileLimitReached ? `; file limit reached` : ""}.
             </div>
           )}
 

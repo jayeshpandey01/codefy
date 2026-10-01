@@ -1,4 +1,4 @@
-import type { Finding, SecretFinding, WorkspaceGraph } from "@whoami/types";
+import type { Finding, RuleToggleConfig, SecretFinding, WorkspaceGraph } from "@whoami/types";
 import type { WorkspaceFile } from "./workspaceFs.js";
 import type {
   EngineWorkerInboundMessage,
@@ -9,11 +9,13 @@ export interface EngineScanResult {
   readonly findings: readonly Finding[];
   readonly secrets: readonly SecretFinding[];
   readonly workspaceGraph: WorkspaceGraph;
+  readonly filesFailed: number;
 }
 
 export interface EngineScanHandlers {
   readonly onProgress?: (scanned: number, total: number) => void;
   readonly onDiagnostic?: (level: "info" | "warn" | "error", message: string) => void;
+  readonly rules?: RuleToggleConfig;
 }
 
 let workerInstance: Worker | undefined;
@@ -98,6 +100,7 @@ export function scanFilesInWorker(
           findings: message.findings,
           secrets: message.secrets,
           workspaceGraph: message.workspaceGraph,
+          filesFailed: message.filesFailed,
         });
       } else {
         reject(new Error(message.message));
@@ -129,6 +132,7 @@ export function scanFilesInWorker(
       requestId,
       files,
       rootPath,
+      rules: handlers.rules,
     };
     worker.postMessage(request);
   });

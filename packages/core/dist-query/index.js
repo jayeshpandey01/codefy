@@ -3669,21 +3669,13 @@ var ScanOrchestratorClient = class {
   timeoutMs;
   logger;
   constructor(config = {}) {
-    const rawUrl = config.baseUrl || (typeof process !== "undefined" ? process.env?.["ORCHESTRATOR_URL"] : void 0) || DEFAULT_ORCHESTRATOR_URL;
+    const rawUrl = config.baseUrl || DEFAULT_ORCHESTRATOR_URL;
     this.baseUrl = cleanCredential(rawUrl)?.replace(/\/+$/, "") || DEFAULT_ORCHESTRATOR_URL;
-    this.apiKey = cleanCredential(
-      config.apiKey || (typeof process !== "undefined" ? process.env?.["API_KEY"] : void 0)
-    );
-    this.adminApiKey = cleanCredential(
-      config.adminApiKey || (typeof process !== "undefined" ? process.env?.["ADMIN_API_KEY"] : void 0)
-    );
+    this.apiKey = cleanCredential(config.apiKey);
+    this.adminApiKey = cleanCredential(config.adminApiKey);
     this.authMode = config.authMode || "api_key";
-    this.jwtToken = cleanCredential(
-      config.jwtToken || config.bearerToken || (typeof process !== "undefined" ? process.env?.["AUTH_TOKEN"] : void 0)
-    );
-    this.controllerSecret = cleanCredential(
-      config.controllerSecret || (typeof process !== "undefined" ? process.env?.["CONTROLLER_SHARED_SECRET"] : void 0)
-    );
+    this.jwtToken = cleanCredential(config.jwtToken || config.bearerToken);
+    this.controllerSecret = cleanCredential(config.controllerSecret);
     this.fetchFn = config.fetchFn || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : void 0);
     this.timeoutMs = config.timeoutMs || 6e4;
     this.logger = (config.logger || new Logger({ source: "orchestrator-client" })).child("orchestrator-client");
@@ -3712,54 +3704,45 @@ var ScanOrchestratorClient = class {
     if (options.idempotencyKey) {
       headers["Idempotency-Key"] = options.idempotencyKey;
     }
-    let activeKeyPreview = "none";
     if (authType === "admin") {
       const key = this.adminApiKey;
-      if (this.jwtToken) {
+      if (key && this.authMode === "api_key") {
+        headers["X-API-Key"] = key;
+      } else if (this.jwtToken) {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-        activeKeyPreview = `Bearer jwt (len ${this.jwtToken.length})`;
       } else if (key) {
-        activeKeyPreview = `${key.slice(0, 4)}...${key.slice(-4)} (len ${key.length})`;
-        if (this.authMode === "bearer") {
-          headers["Authorization"] = `Bearer ${key}`;
-        } else {
-          headers["X-API-Key"] = key;
-        }
+        headers["Authorization"] = `Bearer ${key}`;
       } else {
         throw new OrchestratorApiError(
-          "Admin authentication required but no ADMIN_API_KEY or Bearer token configured",
+          "An administrator account is required for this operation",
           401,
           null,
           {
             code: "admin_auth_missing",
-            reason: "Admin credentials missing from environment and client configuration.",
-            hint: "Target registration and audit inspection require ADMIN_API_KEY. Configure ADMIN_API_KEY in .env or settings.",
-            fix: "Configure ADMIN_API_KEY in .env or settings."
+            reason: "The signed-in account is missing administrator permissions.",
+            hint: "Sign in with an administrator-enabled account or contact your Axiom administrator.",
+            fix: "Use an account with the required role."
           }
         );
       }
     } else if (authType === "operator") {
       const key = this.apiKey || this.adminApiKey;
-      if (this.jwtToken) {
+      if (key && this.authMode === "api_key") {
+        headers["X-API-Key"] = key;
+      } else if (this.jwtToken) {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-        activeKeyPreview = `Bearer jwt (len ${this.jwtToken.length})`;
       } else if (key) {
-        activeKeyPreview = `${key.slice(0, 4)}...${key.slice(-4)} (len ${key.length})`;
-        if (this.authMode === "bearer") {
-          headers["Authorization"] = `Bearer ${key}`;
-        } else {
-          headers["X-API-Key"] = key;
-        }
+        headers["Authorization"] = `Bearer ${key}`;
       } else {
         throw new OrchestratorApiError(
-          "Operator authentication required but no API_KEY or Bearer token configured",
+          "Sign in to use cloud scans",
           401,
           null,
           {
             code: "auth_missing",
-            reason: "Operator credentials missing from environment and client configuration.",
-            hint: "Provide apiKey or set API_KEY environment variable.",
-            fix: "Configure API_KEY in .env or settings."
+            reason: "No valid signed-in user session is available.",
+            hint: "Sign in again to refresh your cloud-scan authorization.",
+            fix: "Sign in to your WhoAmI account."
           }
         );
       }
@@ -3788,7 +3771,6 @@ var ScanOrchestratorClient = class {
     this.logger.debug(`API Request: ${method} ${path}`, {
       url,
       authType,
-      keyPreview: activeKeyPreview,
       hasBody: options.body !== void 0
     });
     const startTime = Date.now();
@@ -3875,7 +3857,6 @@ var ScanOrchestratorClient = class {
         {
           url,
           authType,
-          keyPreview: activeKeyPreview,
           statusCode: response.status,
           error: errorMessage,
           errorType,
@@ -3886,9 +3867,9 @@ var ScanOrchestratorClient = class {
       if (response.status === 401 || response.status === 403) {
         meta = {
           code: "auth_failed",
-          reason: "API key was missing, invalid, or has insufficient role permissions for this endpoint.",
-          hint: "Verify API_KEY or ADMIN_API_KEY in your .env or settings.",
-          fix: "Set a valid API Key in settings or .env file."
+          reason: "The signed-in account was not authorized for this operation.",
+          hint: "Sign in with an account that has access to this target and operation.",
+          fix: "Check the account's Axiom role and target authorization."
         };
       } else if (response.status === 404) {
         meta = {
@@ -3975,7 +3956,7 @@ var ScanOrchestratorClient = class {
     return this.request("/health/ready", { auth: "none" });
   }
   // ============================================================================
-  // 2. Target Management Endpoints (Admin Required)
+  // 2. Target Management Endpoints (user-owned targets; admin can manage all)
   // ============================================================================
   /**
    * Register a new authorized target (POST /v1/targets)
@@ -3990,7 +3971,7 @@ var ScanOrchestratorClient = class {
     return this.request("/v1/targets", {
       method: "POST",
       body: targetPayload,
-      auth: "admin"
+      auth: "operator"
     });
   }
   /**
@@ -4000,7 +3981,7 @@ var ScanOrchestratorClient = class {
     const qs = buildQueryString(params);
     return this.request(`/v1/targets${qs}`, {
       method: "GET",
-      auth: "admin"
+      auth: "operator"
     });
   }
   /**
@@ -4009,7 +3990,7 @@ var ScanOrchestratorClient = class {
   async getTarget(targetId) {
     return this.request(`/v1/targets/${encodeURIComponent(targetId)}`, {
       method: "GET",
-      auth: "admin"
+      auth: "operator"
     });
   }
   // ============================================================================

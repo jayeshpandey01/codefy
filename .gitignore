@@ -15,6 +15,7 @@ src-tauri/target/
 .DS_Store
 *.csv
 *.log
+*.db
 catboost_info/
 demo_output/
 trainiq_output/

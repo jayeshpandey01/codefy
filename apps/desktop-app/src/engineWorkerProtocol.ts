@@ -1,4 +1,4 @@
-import type { Finding, SecretFinding, WorkspaceGraph } from "@whoami/types";
+import type { Finding, RuleToggleConfig, SecretFinding, WorkspaceGraph } from "@whoami/types";
 
 /**
  * The postMessage protocol between the main thread (src/bridge/engineWorker.ts)
@@ -22,6 +22,7 @@ export interface EngineWorkerScanRequest {
   /** The picked workspace folder's absolute path — needed by
    * buildWorkspaceGraph() to compute directory nodes relative to it. */
   readonly rootPath: string;
+  readonly rules?: RuleToggleConfig;
 }
 
 export type EngineWorkerInboundMessage = EngineWorkerScanRequest;
@@ -39,6 +40,7 @@ export interface EngineWorkerScanResult {
   readonly findings: readonly Finding[];
   readonly secrets: readonly SecretFinding[];
   readonly workspaceGraph: WorkspaceGraph;
+  readonly filesFailed: number;
 }
 
 export interface EngineWorkerScanError {

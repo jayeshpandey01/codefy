@@ -28,14 +28,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   customExcludedDirs: ["tests", "test", "__tests__", "fixtures", "demo"],
   maxScannableFiles: 5000,
 
-  // Cloud Orchestrator & API Credentials -- never hardcode real keys here:
-  // this object ships inside the extension's webview bundle, so any literal
-  // value here is extractable in plaintext from the shipped extension.
-  // Users configure their own via Settings; nothing here is a working default.
-  orchestratorUrl: "https://axiom-xjkc.onrender.com",
-  operatorApiKey: "",
-  adminApiKey: "",
-  authorizationReference: "AUTH-VSCODE-2026",
   selectedAiModel: "anthropic/claude-3.5-sonnet",
 
   // Telemetry & Storage
@@ -67,7 +59,26 @@ export async function setPreference<T>(key: string, value: T): Promise<void> {
 }
 
 export async function getSettings(): Promise<UserSettings> {
-  const stored = await getPreference<Partial<UserSettings>>("app_settings", {});
+  const storedWithLegacy = await getPreference<
+    Partial<UserSettings> & {
+      orchestratorUrl?: unknown;
+      operatorApiKey?: unknown;
+      adminApiKey?: unknown;
+      authorizationReference?: unknown;
+    }
+  >("app_settings", {});
+  const stored = { ...storedWithLegacy };
+  const legacyKeys = ["orchestratorUrl", "operatorApiKey", "adminApiKey", "authorizationReference"] as const;
+  let removedLegacySettings = false;
+  for (const key of legacyKeys) {
+    if (key in stored) {
+      delete stored[key];
+      removedLegacySettings = true;
+    }
+  }
+  if (removedLegacySettings) {
+    await setPreference("app_settings", stored);
+  }
   return {
     ...DEFAULT_SETTINGS,
     ...stored,

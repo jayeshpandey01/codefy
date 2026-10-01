@@ -37,6 +37,15 @@
         "icon": "$(shield)"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "whoami.openPanel",
+          "group": "navigation",
+          "when": "true"
+        }
+      ]
+    },
     "configuration": {
       "title": "WhoAmI Security Orchestrator",
       "properties": {
@@ -56,15 +65,6 @@
           "description": "Admin API Key for target registration and audit trail inspection."
         }
       }
-    },
-    "menus": {
-      "editor/title": [
-        {
-          "command": "whoami.openPanel",
-          "group": "navigation",
-          "when": "true"
-        }
-      ]
     }
   },
   "scripts": {

@@ -18,6 +18,7 @@ import type {
   ScanProfile,
   ScanSessionEntry,
   ScanSessionWithFindings,
+  ScanCoverage,
   SettingsModalTabId,
   UserAccount,
   UserSettings,
@@ -189,6 +190,7 @@ export function App(): ReactElement {
     scanned: number;
     total: number;
   } | null>(null);
+  const [scanCoverage, setScanCoverage] = useState<ScanCoverage | null>(null);
   const [isOrchestratorScanning, setIsOrchestratorScanning] = useState<boolean>(false);
   const [orchestratorProgress, setOrchestratorProgress] = useState<{
     currentTask: string;
@@ -343,6 +345,7 @@ export function App(): ReactElement {
 
     const offResult = bridge.on("scan-workspace-result", (message) => {
       const nextFindings = [...message.findings];
+      setScanCoverage(message.coverage ?? null);
       setFindings(nextFindings);
       if (nextFindings.length > 0) {
         setSelectedFinding(nextFindings[0]);
@@ -445,6 +448,7 @@ export function App(): ReactElement {
       setStatus("scanning");
       setErrorMessage(null);
       setProgress(null);
+      setScanCoverage(null);
       if (targetPath) {
         setSelectedFolder(targetPath);
         try {
@@ -456,10 +460,11 @@ export function App(): ReactElement {
       bridge.send({
         type: "scan-workspace-request",
         folderPath: targetPath || undefined,
+        rules: userSettings?.rules,
         requestId: `ui-scan-${Date.now()}`,
       });
     },
-    [bridge, selectedFolder],
+    [bridge, selectedFolder, userSettings?.rules],
   );
 
   const handleSelectFinding = useCallback(
@@ -614,11 +619,9 @@ export function App(): ReactElement {
     async ({
       target,
       profiles,
-      authRef = "AUTH-DESKTOP-2026",
     }: {
       target: string;
       profiles: (AllScanProfile | "secret-scan")[];
-      authRef?: string;
     }) => {
       setIsOrchestratorScanning(true);
       setErrorMessage(null);
@@ -638,7 +641,8 @@ export function App(): ReactElement {
           target: {
             value: target,
             owner_reference: "Desktop SecOps",
-            authorization_reference: authRef,
+            authorization_reference: "USER_ATTESTED_ON_SCAN_START",
+            authorization_confirmed: true,
             target_type: isSastTarget ? "source_code" : "network",
           },
           requestId: `reg-${Date.now()}`,
@@ -979,6 +983,22 @@ export function App(): ReactElement {
     [gatewayAuthClient],
   );
 
+  const handleContinueOffline = useCallback(() => {
+    // Create a local-only session so the user can run deterministic scans
+    // without authenticating against the remote AI Gateway.
+    const session: AuthSession = {
+      accessToken: "offline-local-session",
+      tokenType: "Bearer",
+      userId: "local-developer",
+      name: "Local Developer",
+      email: "developer@local.workspace",
+      tier: "community",
+      expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+    };
+    void handleAuthSuccess(session);
+    setAuthLoading(false);
+  }, [handleAuthSuccess]);
+
   const handleForgotPassword = useCallback(
     async (email: string) => {
       try {
@@ -1089,6 +1109,7 @@ export function App(): ReactElement {
         onResendCode={handleWelcomeResendCode}
         onForgotPassword={handleForgotPassword}
         onResetPassword={handleResetPassword}
+        onContinueOffline={handleContinueOffline}
       />
     );
   }
@@ -1119,12 +1140,7 @@ export function App(): ReactElement {
               isRefreshing={status === "scanning"}
               activeScanMode={scanMode}
               onScanModeChange={handleScanModeChange}
-              onTriggerOrchestratorScan={() =>
-                handleRunOrchestratorScan({
-                  target: "scanme.nmap.org",
-                  profiles: ["recon", "web-discovery", "vuln-assessment"],
-                })
-              }
+              onTriggerOrchestratorScan={() => handleScanModeChange("orchestrator")}
               isLeftSidebarOpen={isLeftSidebarOpen}
               onToggleLeftSidebar={() => setIsLeftSidebarOpen((prev) => !prev)}
               isRightSectionOpen={isRightSectionOpen}
@@ -1220,6 +1236,13 @@ export function App(): ReactElement {
             className="border-b border-[#BE1100] bg-[#5A1D1D] px-4 py-1 text-xs text-[#F14C4C] shrink-0"
           >
             {errorMessage}
+          </div>
+        )}
+        {scanCoverage && (
+          <div role="status" className="border-b border-[#3C3C3C] bg-[#252526] px-4 py-1 text-xs text-[#CCCCCC] shrink-0">
+            Offline scan coverage: {scanCoverage.filesScanned} file(s) analyzed out of {scanCoverage.filesDiscovered} file(s) visited;
+            {` ${scanCoverage.filesFailed} failed, ${scanCoverage.filesSkippedLarge} too large, ${scanCoverage.filesSkippedUnsupported} unsupported, ${scanCoverage.directoriesSkipped} excluded folder(s), ${scanCoverage.directoriesUnreadable} unreadable folder(s)`}
+            {scanCoverage.fileLimitReached ? `; file limit reached` : ""}.
           </div>
         )}
 

@@ -6,7 +6,7 @@ import {
   createAnalysisEngine,
   type AnalysisEngine,
 } from "@whoami/core/node";
-import type { Finding, WorkspaceGraph } from "@whoami/types";
+import type { Finding, RuleToggleConfig, ScanCoverage, WorkspaceGraph } from "@whoami/types";
 
 /** File extensions supported for security rules and multi-language syntax checking. */
 const SCANNABLE_EXTENSIONS = new Set([
@@ -112,6 +112,20 @@ export interface WorkspaceScanProgress {
 
 export interface WorkspaceScanResult {
   readonly findings: readonly Finding[];
+  readonly coverage: ScanCoverage;
+}
+
+export interface WorkspaceCollectionStats {
+  filesSeen: number;
+  filesSkippedUnsupported: number;
+  directoriesSkipped: number;
+  directoriesUnreadable: number;
+  fileLimitReached: boolean;
+}
+
+export interface WorkspaceCollectionOptions {
+  readonly customExcludedDirs?: readonly string[];
+  readonly maxScannableFiles?: number;
 }
 
 /**
@@ -140,10 +154,25 @@ export class EngineHost {
   async scanWorkspace(
     rootPath: string,
     onProgress?: (progress: WorkspaceScanProgress) => void,
+    rules?: RuleToggleConfig,
+    collectionOptions?: WorkspaceCollectionOptions,
   ): Promise<WorkspaceScanResult> {
     const startedAt = Date.now();
-    const files = await collectScannableFiles(rootPath);
+    const collectionStats: WorkspaceCollectionStats = {
+      filesSeen: 0,
+      filesSkippedUnsupported: 0,
+      directoriesSkipped: 0,
+      directoriesUnreadable: 0,
+      fileLimitReached: false,
+    };
+    const files = await collectScannableFiles(rootPath, collectionStats, collectionOptions);
     this.logDiagnostic("info", `Starting ${rootPath}: ${files.length} file(s) queued.`);
+    if (files.length === 0) {
+      const reason = collectionStats.directoriesUnreadable > 0
+        ? "The workspace contains no readable supported source files."
+        : "The workspace contains no supported source files after applying scan exclusions.";
+      throw new Error(reason);
+    }
     const findings: Finding[] = [];
     this.lastFindingsById.clear();
     this.lastFiles = files;
@@ -155,6 +184,7 @@ export class EngineHost {
     let currentIndex = 0;
     let failedFiles = 0;
     let oversizedFiles = 0;
+    let successfullyScanned = 0;
 
     const worker = async () => {
       while (currentIndex < files.length) {
@@ -174,7 +204,8 @@ export class EngineHost {
           const sourceCode = await fs.readFile(filePath, "utf8");
           this.lastFileContents.set(filePath, sourceCode);
           stage = "analysis";
-          const result = await this.engine.scanFile(filePath, sourceCode);
+          const result = await this.engine.scanFile(filePath, sourceCode, rules);
+          successfullyScanned += 1;
           for (const finding of result.findings) {
             findings.push(finding);
             this.lastFindingsById.set(finding.id, finding);
@@ -205,7 +236,19 @@ export class EngineHost {
       `Finished ${rootPath} in ${Math.round((Date.now() - startedAt) / 1000)}s: ${scanned}/${files.length} processed, ${findings.length} finding(s), ${failedFiles} failed file(s), ${oversizedFiles} oversized file(s) skipped.`,
     );
 
-    return { findings };
+    return {
+      findings,
+      coverage: {
+        filesDiscovered: collectionStats.filesSeen,
+        filesScanned: successfullyScanned,
+        filesFailed: failedFiles,
+        filesSkippedLarge: oversizedFiles,
+        filesSkippedUnsupported: collectionStats.filesSkippedUnsupported,
+        directoriesSkipped: collectionStats.directoriesSkipped,
+        directoriesUnreadable: collectionStats.directoriesUnreadable,
+        fileLimitReached: collectionStats.fileLimitReached,
+      },
+    };
   }
 
   getFinding(findingId: string): Finding | undefined {
@@ -246,34 +289,51 @@ export class EngineHost {
 /** Exported for the smoke test in src/__tests__/engineHost.test.ts. */
 export async function collectScannableFiles(
   rootPath: string,
+  stats: WorkspaceCollectionStats = {
+    filesSeen: 0,
+    filesSkippedUnsupported: 0,
+    directoriesSkipped: 0,
+    directoriesUnreadable: 0,
+    fileLimitReached: false,
+  },
+  options: WorkspaceCollectionOptions = {},
 ): Promise<string[]> {
   const results: string[] = [];
+  const maxFiles = Math.max(1, Math.min(options.maxScannableFiles ?? MAX_SCANNABLE_FILES, MAX_SCANNABLE_FILES));
+  const customExcludedDirs = new Set((options.customExcludedDirs ?? []).map((name) => name.toLowerCase().trim()));
 
   async function walk(dir: string): Promise<void> {
     let entries: import("node:fs").Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
+      stats.directoriesUnreadable += 1;
       return;
     }
 
     for (const entry of entries) {
-      if (results.length >= MAX_SCANNABLE_FILES) return;
+      if (results.length >= maxFiles) {
+        stats.fileLimitReached = true;
+        return;
+      }
       if (entry.isDirectory()) {
-        if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith("."))
+        if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith(".") || customExcludedDirs.has(entry.name.toLowerCase())) {
+          stats.directoriesSkipped += 1;
           continue;
+        }
         await walk(path.join(dir, entry.name));
-      } else if (
-        entry.isFile() &&
-        !IGNORED_FILE_NAMES.has(entry.name.toLowerCase()) &&
-        !entry.name.toLowerCase().endsWith(".lock") &&
-        !entry.name.toLowerCase().endsWith(".min.js") &&
-        !entry.name.toLowerCase().endsWith(".min.css") &&
-        !entry.name.toLowerCase().endsWith(".map") &&
-        !entry.name.toLowerCase().endsWith(".d.ts") &&
-        SCANNABLE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
-      ) {
-        results.push(path.join(dir, entry.name));
+      } else if (entry.isFile()) {
+        stats.filesSeen += 1;
+        const lowerName = entry.name.toLowerCase();
+        const ignored = IGNORED_FILE_NAMES.has(lowerName) || lowerName.endsWith(".lock") ||
+          lowerName.endsWith(".min.js") || lowerName.endsWith(".min.css") ||
+          lowerName.endsWith(".map") || lowerName.endsWith(".d.ts");
+        const isEnvFile = lowerName === ".env" || lowerName.startsWith(".env.");
+        if (!ignored && (isEnvFile || SCANNABLE_EXTENSIONS.has(path.extname(lowerName)))) {
+          results.push(path.join(dir, entry.name));
+        } else {
+          stats.filesSkippedUnsupported += 1;
+        }
       }
     }
   }

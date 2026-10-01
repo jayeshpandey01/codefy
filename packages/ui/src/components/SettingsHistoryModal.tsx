@@ -129,10 +129,6 @@ const DEFAULT_USER_SETTINGS: UserSettings = {
   },
   customExcludedDirs: ["tests", "fixtures", "demo"],
   maxScannableFiles: 5000,
-  orchestratorUrl: "https://axiom-xjkc.onrender.com",
-  operatorApiKey: "",
-  adminApiKey: "",
-  authorizationReference: "AUTH-DESKTOP-2026",
   selectedAiModel: "anthropic/claude-3.5-sonnet",
   enableTelemetry: false,
   maskAbsolutePaths: true,
@@ -177,6 +173,7 @@ export function SettingsHistoryModal({
   useEffect(() => {
     setAccountEmailVerified(Boolean(account.emailVerified));
   }, [account.emailVerified]);
+
 
   const [showEmailVerifyBox, setShowEmailVerifyBox] = useState<boolean>(false);
   const [emailVerifyCode, setEmailVerifyCode] = useState<string>("");

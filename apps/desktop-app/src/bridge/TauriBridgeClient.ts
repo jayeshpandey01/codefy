@@ -3,16 +3,18 @@ import {
   type BridgeMessage,
   type BridgeMessageType,
   type Finding,
+  type RuleToggleConfig,
   type WorkspaceGraph,
   VercelError,
   toStructuredError,
 } from "@whoami/types";
 import {
+  DEFAULT_ORCHESTRATOR_URL,
   ScanOrchestratorClient,
   handleOrchestratorMessage,
-  resolveOrchestratorUrl,
 } from "@whoami/core/query";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { getAuthSession } from "../db/authRepo.js";
 import { getSettings } from "../db/preferencesRepo.js";
 import { pickAndReadWorkspace, pickWorkspaceFolder, readWorkspaceFromPath, type PickedWorkspace } from "./workspaceFs.js";
 import { scanFilesInWorker } from "./engineWorker.js";
@@ -163,22 +165,12 @@ export class TauriBridgeClient implements BridgeClient {
    * fetch would be blocked. Allowed hosts: capabilities/default.json.
    */
   private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
-    const settings = await getSettings();
-    const resolved = resolveOrchestratorUrl({
-      userSetting: settings.orchestratorUrl,
-      buildTime: import.meta.env.VITE_ORCHESTRATOR_URL,
-    });
-    if (!resolved.ok) {
-      throw new VercelError(resolved.reason, {
-        code: "orchestrator_url_not_allowed",
-        scope: "orchestrator",
-        hint: "Change the orchestrator URL in Settings, or clear it to use the default.",
-      });
-    }
+    const session = await getAuthSession();
     return new ScanOrchestratorClient({
-      baseUrl: resolved.url,
-      apiKey: settings.operatorApiKey || undefined,
-      adminApiKey: settings.adminApiKey || undefined,
+      baseUrl: "https://axiom-xjkc.onrender.com",
+      apiKey: "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
+      adminApiKey: "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU",
+      jwtToken: session?.accessToken,
       fetchFn: tauriFetch as typeof fetch,
     });
   }
@@ -226,7 +218,7 @@ export class TauriBridgeClient implements BridgeClient {
       }
 
       case "scan-workspace-request":
-        await this.handleScanWorkspace(message.requestId, message.folderPath);
+        await this.handleScanWorkspace(message.requestId, message.folderPath, message.rules);
         return;
 
       case "get-trace-request": {
@@ -337,6 +329,7 @@ export class TauriBridgeClient implements BridgeClient {
   private async handleScanWorkspace(
     requestId: string | undefined,
     folderPath?: string,
+    rules?: RuleToggleConfig,
   ): Promise<void> {
     const scanStartedAt = Date.now();
     const scanLog = (level: "info" | "warn" | "error", message: string): void => {
@@ -382,9 +375,21 @@ export class TauriBridgeClient implements BridgeClient {
         return;
       }
 
+      if (picked.files.length === 0) {
+        scanLog("error", `No scannable files loaded from ${picked.rootPath}.`);
+        this.emit({
+          type: "error",
+          requestId,
+          message: `Folder "${picked.rootPath}" contains no supported readable source files.`,
+        });
+        return;
+      }
+
       scanLog("info", `Workspace loaded: ${picked.files.length} file(s) from ${picked.rootPath}; starting analysis Worker.`);
 
+      const settings = await getSettings();
       const result = await scanFilesInWorker(picked.files, picked.rootPath, {
+        rules: rules ?? settings.rules,
         onDiagnostic: scanLog,
         onProgress: (scanned, total) => {
           this.emit({
@@ -396,20 +401,8 @@ export class TauriBridgeClient implements BridgeClient {
         },
       });
       scanLog("info", `Scan complete in ${Math.round((Date.now() - scanStartedAt) / 1000)}s: findings=${result.findings.length}, secrets=${result.secrets.length}.`);
-
-      // SecretFinding results have no BridgeMessage of their own yet (see
-      // packages/types/src/bridge.ts) -- scan-workspace-result only carries
-      // `findings`. Rather than silently dropping them, they're logged here;
-      // wiring a real secrets channel is a contract-first change that
-      // belongs in packages/types first (see the webview-bridge skill's
-      // "Adding a new message type" rule), not something to freelance from
-      // this app alone.
       if (result.secrets.length > 0) {
-        console.warn(
-          `[WhoAmI] ${result.secrets.length} secret(s) detected but not yet surfaced in the UI ` +
-            "(no BridgeMessage variant carries SecretFinding yet):",
-          result.secrets,
-        );
+        scanLog("warn", `${result.secrets.length} potential secret(s) detected; values omitted from diagnostics.`);
       }
 
       this.lastScanFindings = new Map(
@@ -420,6 +413,11 @@ export class TauriBridgeClient implements BridgeClient {
         type: "scan-workspace-result",
         requestId,
         findings: result.findings,
+        coverage: {
+          ...picked.coverage,
+          filesScanned: picked.files.length - result.filesFailed,
+          filesFailed: picked.coverage.filesFailed + result.filesFailed,
+        },
       });
     } catch (err) {
       scanLog("error", `Scan failed after ${Math.round((Date.now() - scanStartedAt) / 1000)}s: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);

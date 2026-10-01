@@ -3,6 +3,7 @@ import { readDir, readTextFile, size, type DirEntry } from "@tauri-apps/plugin-f
 import { join } from "@tauri-apps/api/path";
 import { getSettings } from "../db/preferencesRepo.js";
 import { invoke } from "@tauri-apps/api/core";
+import type { ScanCoverage } from "@whoami/types";
 
 /**
  * In-memory file the Worker can analyze -- exactly the shape
@@ -128,7 +129,31 @@ function isScannable(name: string): boolean {
   ) {
     return false;
   }
-  return SCANNABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+  return lower === ".env" || lower.startsWith(".env.") || SCANNABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+interface WorkspaceTraversalStats {
+  directories: number;
+  skippedLarge: number;
+  failedFiles: number;
+  filesSeen: number;
+  skippedUnsupported: number;
+  directoriesSkipped: number;
+  directoriesUnreadable: number;
+  fileLimitReached: boolean;
+}
+
+function createTraversalStats(): WorkspaceTraversalStats {
+  return {
+    directories: 0,
+    skippedLarge: 0,
+    failedFiles: 0,
+    filesSeen: 0,
+    skippedUnsupported: 0,
+    directoriesSkipped: 0,
+    directoriesUnreadable: 0,
+    fileLimitReached: false,
+  };
 }
 
 /**
@@ -143,13 +168,16 @@ async function walkDir(
   config?: {
     customExcludedDirs?: readonly string[];
     maxFiles?: number;
-    stats?: { directories: number; skippedLarge: number; failedFiles: number };
+    stats?: WorkspaceTraversalStats;
     startedAt?: number;
     lastLogAt?: number;
   },
 ): Promise<void> {
-  const maxFiles = config?.maxFiles ?? MAX_FILES;
-  if (out.length >= maxFiles) return;
+  const maxFiles = Math.min(config?.maxFiles ?? MAX_FILES, MAX_FILES);
+  if (out.length >= maxFiles) {
+    if (config?.stats) config.stats.fileLimitReached = true;
+    return;
+  }
 
   const customSet = config?.customExcludedDirs
     ? new Set(config.customExcludedDirs.map((d) => d.toLowerCase().trim()))
@@ -171,12 +199,16 @@ async function walkDir(
     // shouldn't abort the whole scan.
     console.warn(`[WhoAmI] Skipping unreadable directory ${dirPath}:`, err);
     if (config?.stats) config.stats.directories += 1;
+    if (config?.stats) config.stats.directoriesUnreadable += 1;
     scanLog("warn", `Unable to read directory ${dirPath}: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
   for (const entry of entries) {
-    if (out.length >= maxFiles) return;
+    if (out.length >= maxFiles) {
+      if (config?.stats) config.stats.fileLimitReached = true;
+      return;
+    }
 
     if (entry.isDirectory) {
       const lowerName = entry.name.toLowerCase();
@@ -188,6 +220,7 @@ async function walkDir(
         IGNORED_DIR_NAMES.has(lowerName) ||
         (customSet && customSet.has(lowerName))
       ) {
+        if (config?.stats) config.stats.directoriesSkipped += 1;
         continue;
       }
       const childPath = await join(dirPath, entry.name);
@@ -195,7 +228,12 @@ async function walkDir(
       continue;
     }
 
-    if (!entry.isFile || !isScannable(entry.name)) continue;
+    if (!entry.isFile) continue;
+    if (config?.stats) config.stats.filesSeen += 1;
+    if (!isScannable(entry.name)) {
+      if (config?.stats) config.stats.skippedUnsupported += 1;
+      continue;
+    }
 
     const filePath = await join(dirPath, entry.name);
     try {
@@ -244,6 +282,7 @@ async function walkDir(
 export interface PickedWorkspace {
   readonly rootPath: string;
   readonly files: WorkspaceFile[];
+  readonly coverage: ScanCoverage;
 }
 
 /**
@@ -270,7 +309,7 @@ export async function pickAndReadWorkspace(): Promise<PickedWorkspace | null> {
 
   const settings = await getSettings();
   const files: WorkspaceFile[] = [];
-  const stats = { directories: 0, skippedLarge: 0, failedFiles: 0 };
+  const stats = createTraversalStats();
   const startedAt = Date.now();
   scanLog("info", `Starting workspace traversal at ${selected} (max files=${settings.maxScannableFiles}).`);
   await walkDir(selected, files, {
@@ -281,7 +320,20 @@ export async function pickAndReadWorkspace(): Promise<PickedWorkspace | null> {
     lastLogAt: startedAt,
   });
   scanLog("info", `Workspace traversal finished in ${Math.round((Date.now() - startedAt) / 1000)}s: files=${files.length}, directories=${stats.directories}, large files skipped=${stats.skippedLarge}, failed reads=${stats.failedFiles}${files.length >= settings.maxScannableFiles ? ", file cap reached" : ""}.`);
-  return { rootPath: selected, files };
+  return {
+    rootPath: selected,
+    files,
+    coverage: {
+      filesDiscovered: stats.filesSeen,
+      filesScanned: 0,
+      filesFailed: stats.failedFiles,
+      filesSkippedLarge: stats.skippedLarge,
+      filesSkippedUnsupported: stats.skippedUnsupported,
+      directoriesSkipped: stats.directoriesSkipped,
+      directoriesUnreadable: stats.directoriesUnreadable,
+      fileLimitReached: stats.fileLimitReached,
+    },
+  };
 }
 
 /**
@@ -292,7 +344,7 @@ export async function readWorkspaceFromPath(
 ): Promise<PickedWorkspace> {
   const settings = await getSettings();
   const files: WorkspaceFile[] = [];
-  const stats = { directories: 0, skippedLarge: 0, failedFiles: 0 };
+  const stats = createTraversalStats();
   const startedAt = Date.now();
   scanLog("info", `Starting workspace traversal at ${dirPath} (max files=${settings.maxScannableFiles}).`);
   await walkDir(dirPath, files, {
@@ -303,5 +355,18 @@ export async function readWorkspaceFromPath(
     lastLogAt: startedAt,
   });
   scanLog("info", `Workspace traversal finished in ${Math.round((Date.now() - startedAt) / 1000)}s: files=${files.length}, directories=${stats.directories}, large files skipped=${stats.skippedLarge}, failed reads=${stats.failedFiles}${files.length >= settings.maxScannableFiles ? ", file cap reached" : ""}.`);
-  return { rootPath: dirPath, files };
+  return {
+    rootPath: dirPath,
+    files,
+    coverage: {
+      filesDiscovered: stats.filesSeen,
+      filesScanned: 0,
+      filesFailed: stats.failedFiles,
+      filesSkippedLarge: stats.skippedLarge,
+      filesSkippedUnsupported: stats.skippedUnsupported,
+      directoriesSkipped: stats.directoriesSkipped,
+      directoriesUnreadable: stats.directoriesUnreadable,
+      fileLimitReached: stats.fileLimitReached,
+    },
+  };
 }

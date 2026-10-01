@@ -149,4 +149,42 @@ def run():
     const result = await engine.scanFile("src/routes/literal.py", code);
     expect(result.findings).toHaveLength(0);
   });
+
+  it.each([
+    ["commandInjection", "export function run(req: any) { exec(req.body.command); }", "js-command-injection-exec"],
+    ["sqlInjection", "export function run(req: any, db: any) { db.query(`SELECT ${req.params.id}`); }", "js-sql-injection-string-concat"],
+    ["ssrf", "export function run(req: any) { fetch(req.query.url); }", "js-ssrf-unvalidated-url"],
+    ["pathTraversal", "import fs from 'fs'; export function run(req: any) { const file = req.query.file; return fs.readFileSync(file, 'utf8'); }", "js-path-traversal"],
+    ["codeInjection", "export function run(req: any) { eval(req.body.code); }", "js-code-injection"],
+    ["secretDetection", "const api_key = 'abcdefghijklmnopqrstuvwxyz123456';", "secret-generic-api-key"],
+  ] as const)("honors the %s offline rule switch", async (toggle, source, expectedRuleId) => {
+    const disabled = await engine.scanFile(`toggle-${toggle}.ts`, source, { [toggle]: false });
+    expect(disabled.findings.some((finding) => finding.ruleId === expectedRuleId)).toBe(false);
+
+    const enabled = await engine.scanFile(`toggle-${toggle}-enabled.ts`, source, { [toggle]: true });
+    expect(enabled.findings.some((finding) => finding.ruleId === expectedRuleId)).toBe(true);
+  });
+
+  it("keeps syntax checks enabled when every security rule is disabled", async () => {
+    const result = await engine.scanFile("toggle-syntax.ts", "function broken( {", {
+      commandInjection: false,
+      sqlInjection: false,
+      ssrf: false,
+      pathTraversal: false,
+      codeInjection: false,
+      secretDetection: false,
+    });
+    expect(result.findings.map((finding) => finding.ruleId)).toContain("syntax-error");
+  });
+
+  it.each([
+    ["commandInjection", "def run(request):\n    os.system(request.args.get('cmd'))\n", "py-command-injection"],
+    ["sqlInjection", "def run(request, cursor):\n    cursor.execute(f\"SELECT {request.args.get('id')}\")\n", "py-sql-injection"],
+    ["ssrf", "def run(request):\n    requests.get(request.args.get('url'))\n", "py-ssrf"],
+    ["pathTraversal", "def run(request):\n    open(request.args.get('path'))\n", "py-path-traversal"],
+    ["codeInjection", "def run(request):\n    eval(request.args.get('code'))\n", "py-code-injection"],
+  ] as const)("applies the %s switch to Python rules too", async (toggle, source, expectedRuleId) => {
+    const result = await engine.scanFile(`toggle-${toggle}.py`, source, { [toggle]: false });
+    expect(result.findings.some((finding) => finding.ruleId === expectedRuleId)).toBe(false);
+  });
 });

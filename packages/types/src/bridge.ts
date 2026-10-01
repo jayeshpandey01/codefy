@@ -14,7 +14,7 @@ import type {
   TargetCreate,
   TargetRead,
 } from "./orchestrator.js";
-import type { AuthSession, DeveloperApiKey, UserAccount } from "./persistence.js";
+import type { AuthSession, DeveloperApiKey, RuleToggleConfig, UserAccount } from "./persistence.js";
 import type { TaintTrace } from "./taint.js";
 
 interface BaseMessage {
@@ -39,6 +39,9 @@ export type BridgeMessage =
   | (BaseMessage & {
       readonly type: "scan-workspace-request";
       readonly folderPath?: string;
+      readonly rules?: RuleToggleConfig;
+      readonly customExcludedDirs?: readonly string[];
+      readonly maxScannableFiles?: number;
     })
   | (BaseMessage & {
       readonly type: "scan-workspace-progress";
@@ -48,7 +51,20 @@ export type BridgeMessage =
   | (BaseMessage & {
       readonly type: "scan-workspace-result";
       readonly findings: readonly Finding[];
+      readonly coverage?: ScanCoverage;
     })
+  | (BaseMessage & { readonly type: "auth-session-load-request" })
+  | (BaseMessage & {
+      readonly type: "auth-session-load-result";
+      readonly session: AuthSession | null;
+    })
+  | (BaseMessage & {
+      readonly type: "auth-session-save-request";
+      readonly session: AuthSession;
+    })
+  | (BaseMessage & { readonly type: "auth-session-save-result" })
+  | (BaseMessage & { readonly type: "auth-session-clear-request" })
+  | (BaseMessage & { readonly type: "auth-session-clear-result" })
   | (BaseMessage & {
       readonly type: "get-trace-request";
       readonly findingId: string;
@@ -405,6 +421,18 @@ export type BridgeMessage =
     });
 
 export type BridgeMessageType = BridgeMessage["type"];
+
+/** Filesystem and parser coverage for one local workspace scan. */
+export interface ScanCoverage {
+  readonly filesDiscovered: number;
+  readonly filesScanned: number;
+  readonly filesFailed: number;
+  readonly filesSkippedLarge: number;
+  readonly filesSkippedUnsupported: number;
+  readonly directoriesSkipped: number;
+  readonly directoriesUnreadable: number;
+  readonly fileLimitReached: boolean;
+}
 
 /**
  * host -> ui, carried by an "update-notice" BridgeMessage. See
