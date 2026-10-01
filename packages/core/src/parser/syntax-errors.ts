@@ -133,9 +133,8 @@ note: |
 
     return findings;
   } catch (error) {
-    throw new Error(
-      `Syntax analysis failed for ${filePath} (${languageId}): ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
+    // If the grammar parser fails to instantiate or encounters unsupported symbols,
+    // do not fail the file scan -- allow secrets & taint analysis to continue cleanly.
+    return [];
   }
 }

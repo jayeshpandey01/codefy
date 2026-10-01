@@ -237,13 +237,24 @@ async function walkDir(
 
     const filePath = await join(dirPath, entry.name);
     try {
-      const fileSize = await size(filePath);
+      let fileSize = 0;
+      try {
+        fileSize = await size(filePath);
+      } catch {
+        // Fall back to direct read if size() has scope restriction
+      }
+
       if (fileSize > MAX_SCANNABLE_FILE_BYTES) {
         if (config?.stats) config.stats.skippedLarge += 1;
         continue;
       }
 
       const content = await readTextFile(filePath);
+      if (content.length > MAX_SCANNABLE_FILE_BYTES) {
+        if (config?.stats) config.stats.skippedLarge += 1;
+        continue;
+      }
+
       out.push({ path: filePath, content });
       if (config?.startedAt !== undefined && config?.stats) {
         const now = Date.now();

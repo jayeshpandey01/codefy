@@ -113,21 +113,25 @@ export function createAnalysisEngine(
       let syntaxErrorsCount = 0;
 
       if (languageId) {
-        const syntaxStartTime = Date.now();
-        const syntaxErrors = await detectSyntaxErrors(
-          filePath,
-          sourceCode,
-          languageId,
-        );
-        syntaxCheckDurationMs = Date.now() - syntaxStartTime;
-        syntaxErrorsCount = syntaxErrors.length;
-        findings.push(...syntaxErrors);
+        try {
+          const syntaxStartTime = Date.now();
+          const syntaxErrors = await detectSyntaxErrors(
+            filePath,
+            sourceCode,
+            languageId,
+          );
+          syntaxCheckDurationMs = Date.now() - syntaxStartTime;
+          syntaxErrorsCount = syntaxErrors.length;
+          findings.push(...syntaxErrors);
 
-        if (syntaxErrorsCount > 0) {
-          scanLogger?.debug("Syntax errors detected", {
-            count: syntaxErrorsCount,
-            syntaxCheckDurationMs,
-          });
+          if (syntaxErrorsCount > 0) {
+            scanLogger?.debug("Syntax errors detected", {
+              count: syntaxErrorsCount,
+              syntaxCheckDurationMs,
+            });
+          }
+        } catch {
+          // Gracefully continue scan if parser has runtime issue
         }
       }
 
