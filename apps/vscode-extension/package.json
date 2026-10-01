@@ -1,5 +1,5 @@
 {
-  "name": "codefy-ai",
+  "name": "codefy-whoami",
   "version": "0.1.0",
   "private": true,
   "repository": {
@@ -8,10 +8,21 @@
     "directory": "apps/vscode-extension"
   },
   "publisher": "Mickey20",
-  "displayName": "WhoAmI",
+  "displayName": "Codefy - WhoAmI",
   "description": "Real-time taint-flow finding detection, visual attack paths, and local runtime verification inside VS Code.",
   "icon": "icon.png",
   "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "codefy",
+    "whoami",
+    "security",
+    "sast",
+    "taint",
+    "secrets",
+    "linter",
+    "vulnerability",
+    "scanner"
+  ],
   "categories": [
     "Linters",
     "Other"
