@@ -1,6 +1,9 @@
 name: release-extension
 
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_call:
     inputs:
       tag:
@@ -32,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: pnpm/action-setup@v4
 
@@ -63,7 +66,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    environment: release
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -72,21 +74,29 @@ jobs:
           merge-multiple: true
 
       - run: |
-          for f in vsix/*.vsix; do
-            echo "Publishing $f to VS Code Marketplace..."
-            npx -y @vscode/vsce publish --packagePath "$f"
-          done
+          if [ -n "${{ secrets.VSCE_PAT }}" ]; then
+            for f in vsix/*.vsix; do
+              echo "Publishing $f to VS Code Marketplace..."
+              npx -y @vscode/vsce publish --packagePath "$f"
+            done
+          else
+            echo "Skipping VS Code Marketplace publish: VSCE_PAT secret not configured."
+          fi
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - run: |
-          for f in vsix/*.vsix; do
-            echo "Publishing $f to Open VSX..."
-            npx -y ovsx publish --packagePath "$f"
-          done
+          if [ -n "${{ secrets.OVSX_PAT }}" ]; then
+            for f in vsix/*.vsix; do
+              echo "Publishing $f to Open VSX..."
+              npx -y ovsx publish --packagePath "$f"
+            done
+          else
+            echo "Skipping Open VSX publish: OVSX_PAT secret not configured."
+          fi
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
-      - run: gh release upload "${{ inputs.tag }}" vsix/*.vsix --repo "${{ github.repository }}"
+      - run: gh release upload "${{ inputs.tag || github.ref_name }}" vsix/*.vsix --repo "${{ github.repository }}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

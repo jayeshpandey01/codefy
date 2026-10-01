@@ -100,8 +100,8 @@ export function computeUpdateNotice(
 
     if (!current) return null;
 
-    const previous = context.globalState.get<string>(VERSION_STATE_KEY);
-    void context.globalState.update(VERSION_STATE_KEY, current);
+    const previous = context.globalState?.get<string>(VERSION_STATE_KEY);
+    void context.globalState?.update(VERSION_STATE_KEY, current);
 
     if (!previous || previous === current || !isMinorOrMajorBump(previous, current)) {
       return null;

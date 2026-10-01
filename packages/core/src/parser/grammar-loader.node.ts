@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 
@@ -53,9 +54,42 @@ let initPromise: Promise<void> | undefined;
 /** Idempotent — safe to call from multiple call sites. */
 export async function ensureTreeSitterInitialized(): Promise<void> {
   if (!initPromise) {
-    initPromise = Parser.init();
+    initPromise = Parser.init({
+      locateFile(scriptName: string, scriptDirectory: string) {
+        const localCandidates = [
+          path.join(__dirname, scriptName),
+          path.join(__dirname, "dist", scriptName),
+          path.join(scriptDirectory || "", scriptName),
+        ];
+        for (const candidate of localCandidates) {
+          if (fs.existsSync(candidate)) return candidate;
+        }
+        return (scriptDirectory || "") + scriptName;
+      },
+    });
   }
   await initPromise;
+}
+
+function resolveGrammarWasmPath(specifier: string): string {
+  try {
+    return require.resolve(specifier);
+  } catch {
+    const filename = path.basename(specifier);
+    const candidateDirs = [
+      path.join(__dirname, "wasms"),
+      path.join(__dirname, "..", "wasms"),
+      path.join(__dirname, "tree-sitter-wasms"),
+      path.join(__dirname, "out"),
+    ];
+    for (const dir of candidateDirs) {
+      const candidate = path.join(dir, filename);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    throw new Error(`Unable to resolve tree-sitter grammar wasm for "${specifier}"`);
+  }
 }
 
 const languageCache = new Map<SupportedLanguageId, Promise<Parser.Language>>();
@@ -68,7 +102,7 @@ export async function loadLanguage(
   const cached = languageCache.get(languageId);
   if (cached) return cached;
 
-  const wasmPath = require.resolve(GRAMMAR_MODULE_SPECIFIERS[languageId]);
+  const wasmPath = resolveGrammarWasmPath(GRAMMAR_MODULE_SPECIFIERS[languageId]);
   const promise = Parser.Language.load(wasmPath);
   languageCache.set(languageId, promise);
   return promise;

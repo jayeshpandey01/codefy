@@ -88,8 +88,8 @@ if (fs.existsSync(deployPkgJsonPath)) {
   fs.writeFileSync(deployPkgJsonPath, JSON.stringify(pkg, null, 2), "utf-8");
 }
 
-// Ensure icon, license, readme, media are in deployDir
-for (const asset of ["icon.png", "README.md", "LICENSE", "media"]) {
+// Ensure icon, license, readme, media, dist, .vscodeignore are in deployDir
+for (const asset of ["icon.png", "README.md", "LICENSE", "media", "dist", ".vscodeignore"]) {
   const src = path.join(appRoot, asset);
   const dest = path.join(deployDir, asset);
   if (fs.existsSync(src)) {

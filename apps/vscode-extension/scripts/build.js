@@ -18,6 +18,7 @@
  * ESM and require() would fail with ERR_REQUIRE_ESM.
  */
 
+const fs = require("node:fs");
 const path = require("node:path");
 const esbuild = require("esbuild");
 
@@ -46,8 +47,6 @@ const hostConfig = {
   external: [
     "vscode",
     "@ast-grep/napi",
-    "web-tree-sitter",
-    "web-tree-sitter-legacy",
   ],
   sourcemap: true,
   logLevel: "info", minify: !watch,
@@ -110,6 +109,44 @@ function buildUi() {
   }
 }
 
+function copyWasmAssets() {
+  const distDir = path.join(root, "dist");
+  if (!fs.existsSync(distDir)) {
+    fs.mkdirSync(distDir, { recursive: true });
+  }
+
+  // 1. Copy web-tree-sitter's tree-sitter.wasm to dist/
+  try {
+    const wtsPkg = require.resolve("web-tree-sitter/package.json");
+    const wtsWasm = path.join(path.dirname(wtsPkg), "tree-sitter.wasm");
+    if (fs.existsSync(wtsWasm)) {
+      fs.copyFileSync(wtsWasm, path.join(distDir, "tree-sitter.wasm"));
+      console.log("[whoami] copied tree-sitter.wasm -> dist/tree-sitter.wasm");
+    }
+  } catch (err) {
+    console.warn("[whoami] Warning: could not copy tree-sitter.wasm:", err.message);
+  }
+
+  // 2. Copy tree-sitter-wasms/*.wasm to dist/wasms/
+  try {
+    const wasmPkg = require.resolve("tree-sitter-wasms/package.json");
+    const wasmOutDir = path.join(path.dirname(wasmPkg), "out");
+    const targetWasmsDir = path.join(distDir, "wasms");
+    if (!fs.existsSync(targetWasmsDir)) {
+      fs.mkdirSync(targetWasmsDir, { recursive: true });
+    }
+    if (fs.existsSync(wasmOutDir)) {
+      const wasmFiles = fs.readdirSync(wasmOutDir).filter((f) => f.endsWith(".wasm"));
+      for (const file of wasmFiles) {
+        fs.copyFileSync(path.join(wasmOutDir, file), path.join(targetWasmsDir, file));
+      }
+      console.log(`[whoami] copied ${wasmFiles.length} grammar wasms -> dist/wasms/`);
+    }
+  } catch (err) {
+    console.warn("[whoami] Warning: could not copy grammar wasms:", err.message);
+  }
+}
+
 async function run() {
   buildUi();
 
@@ -119,12 +156,14 @@ async function run() {
       esbuild.context(webviewConfig),
     ]);
     await Promise.all([hostCtx.watch(), webviewCtx.watch()]);
+    copyWasmAssets();
     console.log("[whoami] esbuild watching host + webview bundles...");
   } else {
     await Promise.all([
       esbuild.build(hostConfig),
       esbuild.build(webviewConfig),
     ]);
+    copyWasmAssets();
     console.log(
       "[whoami] build complete: dist/extension.js + dist/webview/main.js",
     );

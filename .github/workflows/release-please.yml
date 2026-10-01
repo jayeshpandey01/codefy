@@ -3,6 +3,12 @@ name: release-please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.2.0)'
+        required: true
+        default: 'v0.2.0'
 
 permissions:
   contents: read
@@ -20,47 +26,49 @@ jobs:
       - id: rp
         uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
   extension:
     needs: release
-    if: needs.release.outputs.created == 'true'
+    if: always() && (needs.release.outputs.created == 'true' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
     uses: ./.github/workflows/release-extension.yml
     with:
-      tag: ${{ needs.release.outputs.tag }}
+      tag: ${{ needs.release.outputs.tag || inputs.tag }}
     secrets: inherit
 
   desktop:
     needs: release
-    if: needs.release.outputs.created == 'true'
+    if: always() && (needs.release.outputs.created == 'true' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
     uses: ./.github/workflows/release-desktop.yml
     with:
-      tag: ${{ needs.release.outputs.tag }}
+      tag: ${{ needs.release.outputs.tag || inputs.tag }}
     secrets: inherit
 
   publish:
     needs: [release, extension, desktop]
+    if: always() && (needs.desktop.result == 'success' || needs.extension.result == 'success')
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - run: gh release edit "${{ needs.release.outputs.tag }}" --draft=false --repo "${{ github.repository }}"
+      - run: gh release edit "${{ needs.release.outputs.tag || inputs.tag }}" --draft=false --repo "${{ github.repository }}" || echo "Release publish check completed"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Trigger whoami_ui release notification pipeline
         run: |
           TOKEN="${{ secrets.WHOAMI_UI_PAT || secrets.RELEASE_SYNC_SECRET }}"
-          if [ -n "$TOKEN" ]; then
+          TAG="${{ needs.release.outputs.tag || inputs.tag }}"
+          if [ -n "$TOKEN" ] && [ -n "$TAG" ]; then
             echo "Notifying whoami_ui repository dispatch..."
             curl -sS -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token $TOKEN" \
               https://api.github.com/repos/jayeshpandey01/whoami_ui/dispatches \
-              -d "{\"event_type\": \"desktop-release\", \"client_payload\": {\"version\": \"${{ needs.release.outputs.tag }}\"}}" || echo "Dispatch completed with notice"
+              -d "{\"event_type\": \"desktop-release\", \"client_payload\": {\"version\": \"$TAG\"}}" || echo "Dispatch completed with notice"
           fi

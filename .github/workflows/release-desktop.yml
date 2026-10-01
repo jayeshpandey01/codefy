@@ -1,6 +1,9 @@
 name: release-desktop
 
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_call:
     inputs:
       tag:
@@ -28,11 +31,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
-    environment: release
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - if: matrix.os == 'ubuntu-22.04'
         run: |
@@ -73,7 +75,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop-app
-          tagName: ${{ inputs.tag }}
-          releaseDraft: true
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseDraft: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}

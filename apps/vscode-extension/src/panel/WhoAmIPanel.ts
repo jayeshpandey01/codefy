@@ -32,6 +32,7 @@ export class WhoAmIPanel {
     engineHost: EngineHost,
   ) {
     this.panel = panel;
+    this.panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "media", "logo.svg");
     this.panel.webview.html = getWebviewHtml(this.panel.webview, context.extensionUri);
     this.bridge = new ExtensionBridge(
       this.panel,
