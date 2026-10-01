@@ -2,11 +2,12 @@ import * as vscode from "vscode";
 import { EngineHost } from "./engine/engineHost.js";
 import { registerOpenPanelCommand } from "./commands/openPanel.js";
 import { registerScanWorkspaceCommand } from "./commands/scanWorkspace.js";
+import { registerSetApiKeyCommand } from "./commands/setApiKey.js";
 import { computeUpdateNotice } from "./bridge/updateNotice.js";
 import { WhoAmIPanel } from "./panel/WhoAmIPanel.js";
 
 export function activate(context: vscode.ExtensionContext): void {
-  const scanOutput = vscode.window.createOutputChannel("WhoAmI Scanner");
+  const scanOutput = vscode.window.createOutputChannel("Codefy Scanner");
   // One @whoami/core/node engine instance for the extension host's whole
   // lifetime -- see CLAUDE.md Part 5 and src/engine/engineHost.ts.
   const engineHost = new EngineHost(scanOutput);
@@ -15,6 +16,7 @@ export function activate(context: vscode.ExtensionContext): void {
     scanOutput,
     registerScanWorkspaceCommand(context, engineHost),
     registerOpenPanelCommand(context, engineHost),
+    registerSetApiKeyCommand(context),
   );
 
   // Status bar entry so the extension is visibly present once activated.
@@ -22,9 +24,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.StatusBarAlignment.Left,
     0,
   );
-  statusBar.text = "$(shield) WhoAmI";
-  statusBar.tooltip = "WhoAmI: Open Findings Panel";
-  statusBar.command = "whoami.openPanel";
+  statusBar.text = "$(shield) Codefy";
+  statusBar.tooltip = "Codefy: Open Security Panel";
+  statusBar.command = "codefy.openPanel";
   statusBar.show();
   context.subscriptions.push(statusBar);
 

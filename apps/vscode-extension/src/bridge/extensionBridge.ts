@@ -138,7 +138,8 @@ export class ExtensionBridge {
 
   private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
     const env = loadEnvFile();
-    const config = vscode.workspace.getConfiguration("whoami");
+    const config = vscode.workspace.getConfiguration("codefy");
+    const legacyConfig = vscode.workspace.getConfiguration("whoami");
     const clean = (val?: string | null): string | undefined => {
       if (!val) return undefined;
       const t = val.trim().replace(/^["']|["']$/g, "").trim();
@@ -147,21 +148,27 @@ export class ExtensionBridge {
 
     const baseUrl =
       clean(config.get<string>("orchestrator.url")) ||
+      clean(legacyConfig.get<string>("orchestrator.url")) ||
       clean(process.env.ORCHESTRATOR_URL) ||
       clean(env.ORCHESTRATOR_URL) ||
       DEFAULT_ORCHESTRATOR_URL;
 
+    const storedApiKey = await this.context.secrets.get("codefy.apiKey");
+    const storedAdminApiKey = await this.context.secrets.get("codefy.adminApiKey");
+
     const apiKey =
+      clean(storedApiKey) ||
       clean(config.get<string>("orchestrator.apiKey")) ||
+      clean(legacyConfig.get<string>("orchestrator.apiKey")) ||
       clean(process.env.API_KEY) ||
-      clean(env.API_KEY) ||
-      "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
+      clean(env.API_KEY);
 
     const adminApiKey =
+      clean(storedAdminApiKey) ||
       clean(config.get<string>("orchestrator.adminApiKey")) ||
+      clean(legacyConfig.get<string>("orchestrator.adminApiKey")) ||
       clean(process.env.ADMIN_API_KEY) ||
-      clean(env.ADMIN_API_KEY) ||
-      "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
+      clean(env.ADMIN_API_KEY);
 
     const session = await this.readAuthSession();
     const jwtToken =
@@ -173,7 +180,7 @@ export class ExtensionBridge {
       baseUrl,
       apiKey,
       adminApiKey,
-      authMode: "api_key",
+      authMode: jwtToken ? "bearer" : "api_key",
       jwtToken,
     });
   }

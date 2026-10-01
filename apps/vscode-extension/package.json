@@ -22,49 +22,82 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:codefy.scanWorkspace",
+    "onCommand:codefy.openPanel",
     "onCommand:whoami.scanWorkspace",
     "onCommand:whoami.openPanel"
   ],
   "contributes": {
     "commands": [
       {
+        "command": "codefy.scanWorkspace",
+        "title": "Scan Workspace for Security Findings",
+        "category": "Codefy"
+      },
+      {
+        "command": "codefy.openPanel",
+        "title": "Open Codefy Security Panel",
+        "category": "Codefy",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "codefy.setApiKey",
+        "title": "Set Operator API Key",
+        "category": "Codefy"
+      },
+      {
         "command": "whoami.scanWorkspace",
         "title": "Scan Workspace for Findings",
-        "category": "WhoAmI"
+        "category": "Codefy"
       },
       {
         "command": "whoami.openPanel",
         "title": "Open Findings Panel",
-        "category": "WhoAmI",
+        "category": "Codefy",
         "icon": "$(shield)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "whoami.openPanel",
+          "command": "codefy.openPanel",
           "group": "navigation",
           "when": "true"
         }
       ]
     },
     "configuration": {
-      "title": "WhoAmI Security Orchestrator",
+      "title": "Codefy Security Orchestrator",
       "properties": {
-        "whoami.orchestrator.url": {
+        "codefy.orchestrator.url": {
           "type": "string",
           "default": "https://axiom-xjkc.onrender.com",
           "description": "Base URL of the Authorized Scan Orchestrator service."
         },
-        "whoami.orchestrator.apiKey": {
+        "codefy.orchestrator.apiKey": {
           "type": "string",
           "default": "",
           "description": "Operator API Key for submitting scans and fetching results."
         },
-        "whoami.orchestrator.adminApiKey": {
+        "codefy.orchestrator.adminApiKey": {
           "type": "string",
           "default": "",
           "description": "Admin API Key for target registration and audit trail inspection."
+        },
+        "whoami.orchestrator.url": {
+          "type": "string",
+          "default": "https://axiom-xjkc.onrender.com",
+          "description": "Legacy fallback: Base URL of the Authorized Scan Orchestrator service."
+        },
+        "whoami.orchestrator.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Legacy fallback: Operator API Key for submitting scans and fetching results."
+        },
+        "whoami.orchestrator.adminApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Legacy fallback: Admin API Key for target registration and audit trail inspection."
         }
       }
     }

@@ -11,11 +11,11 @@ export function registerScanWorkspaceCommand(
   context: vscode.ExtensionContext,
   engineHost: EngineHost,
 ): vscode.Disposable {
-  return vscode.commands.registerCommand("whoami.scanWorkspace", async () => {
+  const handler = async () => {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (!folder) {
       void vscode.window.showWarningMessage(
-        "WhoAmI: open a folder or workspace before scanning.",
+        "Codefy: open a folder or workspace before scanning.",
       );
       return;
     }
@@ -25,10 +25,14 @@ export function registerScanWorkspaceCommand(
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "WhoAmI: scanning workspace for findings...",
+        title: "Codefy: scanning workspace for security findings...",
         cancellable: false,
       },
       () => panel.triggerScan(folder.uri.fsPath),
     );
-  });
+  };
+
+  const d1 = vscode.commands.registerCommand("codefy.scanWorkspace", handler);
+  const d2 = vscode.commands.registerCommand("whoami.scanWorkspace", handler);
+  return vscode.Disposable.from(d1, d2);
 }

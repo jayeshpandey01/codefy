@@ -7,7 +7,10 @@ export function registerOpenPanelCommand(
   context: vscode.ExtensionContext,
   engineHost: EngineHost,
 ): vscode.Disposable {
-  return vscode.commands.registerCommand("whoami.openPanel", () => {
+  const handler = () => {
     WhoAmIPanel.createOrShow(context, engineHost);
-  });
+  };
+  const d1 = vscode.commands.registerCommand("codefy.openPanel", handler);
+  const d2 = vscode.commands.registerCommand("whoami.openPanel", handler);
+  return vscode.Disposable.from(d1, d2);
 }

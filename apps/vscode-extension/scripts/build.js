@@ -65,6 +65,9 @@ const hostConfig = {
   },
   define: {
     "import.meta.url": "__whoamiImportMetaUrl",
+    "process.env.ORCHESTRATOR_URL": JSON.stringify(
+      process.env.ORCHESTRATOR_URL || "https://axiom-xjkc.onrender.com",
+    ),
   },
   logOverride: {
     "empty-import-meta": "silent",
@@ -82,6 +85,11 @@ const webviewConfig = {
   outfile: path.join(root, "dist/webview/main.js"),
   loader: { ".css": "css" },
   sourcemap: true,
+  define: {
+    "process.env.ORCHESTRATOR_URL": JSON.stringify(
+      process.env.ORCHESTRATOR_URL || "https://axiom-xjkc.onrender.com",
+    ),
+  },
   logLevel: "info", minify: !watch,
   logOverride: {
     "equals-negative-zero": "silent",
