@@ -262,16 +262,18 @@ export class ScanOrchestratorClient {
     // Attach credentials according to endpoint role requirements
     if (authType === "admin") {
       const key = this.adminApiKey || this.apiKey;
-      if (key && this.authMode === "api_key") {
+      if (key) {
         headers["X-API-Key"] = key;
         if (this.adminApiKey) {
           headers["X-Admin-API-Key"] = this.adminApiKey;
         }
-      } else if (this.jwtToken && this.jwtToken !== "offline-local-session") {
+      }
+      if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-      } else if (key) {
+      } else if (key && !headers["Authorization"]) {
         headers["Authorization"] = `Bearer ${key}`;
-      } else {
+      }
+      if (!headers["X-API-Key"] && !headers["Authorization"]) {
         throw new OrchestratorApiError(
           "An administrator account is required for this operation",
           401,
@@ -286,16 +288,18 @@ export class ScanOrchestratorClient {
       }
     } else if (authType === "operator") {
       const key = this.apiKey || this.adminApiKey;
-      if (key && this.authMode === "api_key") {
+      if (key) {
         headers["X-API-Key"] = key;
         if (this.adminApiKey) {
           headers["X-Admin-API-Key"] = this.adminApiKey;
         }
-      } else if (this.jwtToken && this.jwtToken !== "offline-local-session") {
+      }
+      if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-      } else if (key) {
+      } else if (key && !headers["Authorization"]) {
         headers["Authorization"] = `Bearer ${key}`;
-      } else {
+      }
+      if (!headers["X-API-Key"] && !headers["Authorization"]) {
         throw new OrchestratorApiError(
           "Sign in to use cloud scans",
           401,

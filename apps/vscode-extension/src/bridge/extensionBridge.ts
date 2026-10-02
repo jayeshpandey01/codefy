@@ -145,7 +145,9 @@ export class ExtensionBridge {
     const clean = (val?: string | null): string | undefined => {
       if (!val) return undefined;
       const t = val.trim().replace(/^["']|["']$/g, "").trim();
-      return t && t !== "undefined" && t !== "null" ? t : undefined;
+      if (!t || t === "undefined" || t === "null") return undefined;
+      if (t.includes("your_actual_token") || t.includes("change-me") || t === "YOUR_API_KEY") return undefined;
+      return t;
     };
 
     const baseUrl =
@@ -184,7 +186,7 @@ export class ExtensionBridge {
       baseUrl,
       apiKey,
       adminApiKey,
-      authMode: jwtToken ? "bearer" : "api_key",
+      authMode: "api_key",
       jwtToken,
     });
   }

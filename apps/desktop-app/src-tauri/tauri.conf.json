@@ -25,7 +25,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: asset: https://asset.localhost",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com"
+        "connect-src": "'self' ipc: http://ipc.localhost https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com https://axiom-xjkc.onrender.com https://codefy.ai"
       },
       "devCsp": {
         "default-src": "'self'",
@@ -33,7 +33,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: asset: https://asset.localhost",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com"
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com https://axiom-xjkc.onrender.com https://codefy.ai"
       }
     }
   },
@@ -51,7 +51,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2RTVERjg3NDY4QkIyNkQKUldSdHNvdEdoOS9sSmd0ZjUycGh3TXZFQnloK2FTSVFJbnBmUSt4OCtCbHo2dlF3OTd2ZUhhZDIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5NjY1RDU5OTE0RkM5QQpSV1NhL0JTWjFXV1dEWldaZnBHcjJpb0R1MFpMOElNTEZzUzZNWnBxUVBsdThLTVhxeThHZ3ltUAo=",
       "endpoints": [
         "https://codefy.ai/api/releases/latest.json",
         "https://github.com/jayeshpandey01/codefy/releases/latest/download/latest.json"
