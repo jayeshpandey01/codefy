@@ -1,13 +1,20 @@
-import { DEFAULT_ORCHESTRATOR_URL } from "./constants.js";
+import {
+  DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+} from "./constants.js";
 
 /**
- * Hosted orchestrator origins the desktop app may call. Keep in sync with the
- * `http:default` allow list in apps/desktop-app/src-tauri/capabilities/default.json:
- * that scope is compiled into the app, so a URL accepted here but missing
- * there fails at request time with a plugin scope error.
+ * Hosted orchestrator and security service origins the desktop app may call.
+ * Keep in sync with the `http:default` allow list in
+ * apps/desktop-app/src-tauri/capabilities/default.json.
  */
 export const ORCHESTRATOR_ORIGIN_ALLOWLIST: readonly string[] = [
   new URL(DEFAULT_ORCHESTRATOR_URL).origin,
+  new URL(DEFAULT_AUTH_SERVICE_URL).origin,
+  new URL(DEFAULT_SAST_SERVICE_URL).origin,
+  new URL(DEFAULT_DAST_SERVICE_URL).origin,
 ];
 
 /** Local backend development: plain http is allowed only on loopback, any port. */

@@ -1,5 +1,6 @@
 import type { AuthSession, DeveloperApiKey, UsageSummary } from "@whoami/types";
 import { DEFAULT_AI_GATEWAY_URL } from "../llm/hosted-client.js";
+import { DEFAULT_AUTH_SERVICE_URL } from "../orchestrator/constants.js";
 
 export interface GatewayAuthClientOptions {
   readonly baseUrl?: string;
@@ -65,7 +66,7 @@ export class GatewayAuthClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: GatewayAuthClientOptions = {}) {
-    this.baseUrl = (options.baseUrl || DEFAULT_AI_GATEWAY_URL).replace(/\/+$/, "");
+    this.baseUrl = (options.baseUrl || DEFAULT_AUTH_SERVICE_URL || DEFAULT_AI_GATEWAY_URL).replace(/\/+$/, "");
     // Generous default: a cold Render instance plus server-side email
     // dispatch on register/resend can genuinely take this long.
     this.timeoutMs = options.timeoutMs ?? 45_000;

@@ -15,7 +15,7 @@ import { generateOkfBundle } from "../okf/generator.js";
 import { executeRagRetrieval, verifyLlmResponse } from "../rag/index.js";
 import { maskAbsolutePaths, sanitizeString } from "../logging/redactor.js";
 
-export const DEFAULT_AI_GATEWAY_URL = "https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com";
+export const DEFAULT_AI_GATEWAY_URL = "https://cmd-d-llm.vercel.app";
 
 export interface HostedLlmClientOptions {
   readonly baseUrl?: string;

@@ -199,7 +199,7 @@ describe("HostedLlmClient with TrainIQ RAG & SSE Streaming", () => {
     const reply = await client.query("Give me a tip on secure coding.");
     expect(reply).toBe("Secure coding best practices require input validation.");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com/api/chat",
+      "https://cmd-d-llm.vercel.app/api/chat",
       expect.objectContaining({ method: "POST" }),
     );
   });

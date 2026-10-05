@@ -13,3 +13,4 @@ export * from "./chat-query.js";
 export * from "./okf.js";
 export * from "./persistence.js";
 export * from "./report.js";
+export * from "./security-service.js";

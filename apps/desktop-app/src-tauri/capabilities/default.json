@@ -29,6 +29,15 @@
       "identifier": "http:default",
       "allow": [
         {
+          "url": "https://cmd-d-llm.vercel.app/*"
+        },
+        {
+          "url": "https://sast-dutn.onrender.com/*"
+        },
+        {
+          "url": "https://dast-dutn.onrender.com/*"
+        },
+        {
           "url": "https://axiom-xjkc.onrender.com/*"
         },
         {

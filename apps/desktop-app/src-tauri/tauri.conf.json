@@ -25,7 +25,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: asset: https://asset.localhost",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com https://axiom-xjkc.onrender.com https://codefy.ai"
+        "connect-src": "'self' ipc: http://ipc.localhost https://cmd-d-llm.vercel.app https://sast-dutn.onrender.com https://dast-dutn.onrender.com https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com https://axiom-xjkc.onrender.com https://codefy.ai"
       },
       "devCsp": {
         "default-src": "'self'",
@@ -33,7 +33,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: asset: https://asset.localhost",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com https://axiom-xjkc.onrender.com https://codefy.ai"
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 https://cmd-d-llm.vercel.app https://sast-dutn.onrender.com https://dast-dutn.onrender.com https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com https://axiom-xjkc.onrender.com https://codefy.ai"
       }
     }
   },

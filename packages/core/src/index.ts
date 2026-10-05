@@ -105,3 +105,29 @@ export { generateOkfBundle } from "./okf/index.js";
 export { generateMarkdownReport } from "./report/index.js";
 export { generateFixDiffText, generateUnifiedDiff } from "./report/diff-suggestion.js";
 export type { FixDiffText } from "./report/diff-suggestion.js";
+
+export { SastClient, SecurityServiceApiError } from "./sast/client.js";
+export type { SastClientOptions, PollJobOptions } from "./sast/client.js";
+export {
+  buildZipArchive,
+  packageWorkspaceDirectory,
+  calculateCrc32,
+  isFileIgnored,
+  DEFAULT_IGNORE_PATTERNS,
+} from "./sast/zip-builder.js";
+export type { ZipEntry, PackageDirectoryStats } from "./sast/zip-builder.js";
+
+export { DastClient } from "./dast/client.js";
+export type { DastClientOptions, PollDastJobOptions } from "./dast/client.js";
+
+export { UnifiedSecurityClient } from "./orchestrator/unified-security-client.js";
+export type { UnifiedSecurityClientOptions } from "./orchestrator/unified-security-client.js";
+export {
+  DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+} from "./orchestrator/constants.js";
+export {
+  normalizeSastJobFindings,
+  normalizeDastJobFindings,
+} from "./orchestrator/normalizer.js";

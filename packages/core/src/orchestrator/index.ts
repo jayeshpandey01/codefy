@@ -1,4 +1,9 @@
 export {
+  DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+} from "./constants.js";
+export {
   ScanOrchestratorClient,
   OrchestratorApiError,
   DEFAULT_ORCHESTRATOR_URL,
@@ -9,6 +14,8 @@ export {
   cleanCredential,
 } from "./client.js";
 export type { PollScanOptions } from "./client.js";
+export { UnifiedSecurityClient } from "./unified-security-client.js";
+export type { UnifiedSecurityClientOptions } from "./unified-security-client.js";
 export {
   handleOrchestratorMessage,
   isOrchestratorRequest,
@@ -20,7 +27,11 @@ export {
   resolveOrchestratorUrl,
 } from "./url-config.js";
 export type { OrchestratorUrlValidation } from "./url-config.js";
-export { normalizeRemoteFindings } from "./normalizer.js";
+export {
+  normalizeRemoteFindings,
+  normalizeSastJobFindings,
+  normalizeDastJobFindings,
+} from "./normalizer.js";
 export type { NormalizeRemoteFindingsOptions } from "./normalizer.js";
 export {
   generateControllerHmacHeaders,

@@ -1,8 +1,10 @@
 import type {
+  DastJobDetailResponse,
   Finding,
   RemoteFindingSummary,
   SastFindingEvidence,
   SastFindingSummary,
+  SastJobDetailResponse,
   ScanResultRead,
   SinkClass,
   TaintStep,
@@ -463,4 +465,98 @@ export function normalizeRemoteFindings(
   }
 
   return findings;
+}
+
+export function normalizeSastJobFindings(
+  job: SastJobDetailResponse,
+  targetValue = "codebase",
+): Finding[] {
+  const createdAt = job.created_at || new Date().toISOString();
+  return job.findings.map((f, i) => {
+    const findingId = `sast-${job.job_id}-${f.fingerprint.slice(0, 8)}-${i + 1}`;
+    const severity = mapSeverity(f.severity);
+    const sinkClass = detectSinkClass(f.title, f.description || "", f.vulnerability_id);
+    const cwe = extractCwe(f.cwe_id ?? undefined) || "CWE-200";
+    const filePath = f.file_path || targetValue;
+    const line = f.line_start || 1;
+
+    const traceSteps: TaintStep[] = [
+      {
+        role: "source",
+        label: `File: ${filePath}`,
+        filePath,
+        line,
+      },
+      {
+        role: "sink",
+        label: `${f.title} (${f.detected_by?.length ? f.detected_by.join(", ") : f.tool_name})`,
+        filePath,
+        line,
+      },
+    ];
+
+    return {
+      id: findingId,
+      ruleId: f.vulnerability_id || `sast-${f.tool_name}`,
+      status: "confirmed",
+      severity,
+      title: f.title,
+      description: f.description || f.title,
+      cwe,
+      scope: "orchestrator",
+      remediation: f.remediation || undefined,
+      trace: {
+        steps: traceSteps,
+        sinkClass,
+      },
+      createdAt,
+    };
+  });
+}
+
+export function normalizeDastJobFindings(
+  job: DastJobDetailResponse,
+  targetUrl = "target",
+): Finding[] {
+  const createdAt = job.created_at || new Date().toISOString();
+  const target = job.target_url || targetUrl;
+  return job.findings.map((f, i) => {
+    const findingId = `dast-${job.job_id}-${f.fingerprint.slice(0, 8)}-${i + 1}`;
+    const severity = mapSeverity(f.severity);
+    const sinkClass = detectSinkClass(f.title, f.rule_id || "", f.owasp_category || "");
+    const cwe = extractCwe(f.cwe_id ?? undefined) || "CWE-200";
+    const url = f.target_url || target;
+
+    const traceSteps: TaintStep[] = [
+      {
+        role: "source",
+        label: `Target URL: ${url}`,
+        filePath: url,
+        line: 1,
+      },
+      {
+        role: "sink",
+        label: `${f.title} [${f.tool_name}]${f.parameter ? ` (param: ${f.parameter})` : ""}`,
+        filePath: url,
+        line: 1,
+      },
+    ];
+
+    return {
+      id: findingId,
+      ruleId: f.rule_id || f.vulnerability_id || `dast-${f.tool_name}`,
+      status: "confirmed",
+      severity,
+      title: f.title,
+      description: `${f.title} detected on ${url}${f.parameter ? ` (parameter: ${f.parameter})` : ""}`,
+      cwe,
+      scope: "orchestrator",
+      remediation: f.remediation || undefined,
+      trace: {
+        steps: traceSteps,
+        sinkClass,
+      },
+      createdAt,
+    };
+  });
 }
