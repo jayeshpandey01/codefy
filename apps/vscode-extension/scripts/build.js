@@ -67,6 +67,15 @@ const hostConfig = {
     "process.env.ORCHESTRATOR_URL": JSON.stringify(
       process.env.ORCHESTRATOR_URL || "https://axiom-xjkc.onrender.com",
     ),
+    "process.env.AUTH_SERVICE_URL": JSON.stringify(
+      process.env.AUTH_SERVICE_URL || "https://cmd-d-llm.vercel.app",
+    ),
+    "process.env.SAST_SERVICE_URL": JSON.stringify(
+      process.env.SAST_SERVICE_URL || "https://sast-dutn.onrender.com",
+    ),
+    "process.env.DAST_SERVICE_URL": JSON.stringify(
+      process.env.DAST_SERVICE_URL || "https://dast-dutn.onrender.com",
+    ),
   },
   logOverride: {
     "empty-import-meta": "silent",
@@ -87,6 +96,15 @@ const webviewConfig = {
   define: {
     "process.env.ORCHESTRATOR_URL": JSON.stringify(
       process.env.ORCHESTRATOR_URL || "https://axiom-xjkc.onrender.com",
+    ),
+    "process.env.AUTH_SERVICE_URL": JSON.stringify(
+      process.env.AUTH_SERVICE_URL || "https://cmd-d-llm.vercel.app",
+    ),
+    "process.env.SAST_SERVICE_URL": JSON.stringify(
+      process.env.SAST_SERVICE_URL || "https://sast-dutn.onrender.com",
+    ),
+    "process.env.DAST_SERVICE_URL": JSON.stringify(
+      process.env.DAST_SERVICE_URL || "https://dast-dutn.onrender.com",
     ),
   },
   logLevel: "info", minify: !watch,
