@@ -116,14 +116,17 @@ const webviewConfig = {
 
 const { execSync } = require("node:child_process");
 
-function buildUi() {
-  const uiRoot = path.resolve(root, "../../packages/ui");
-  const viteBin = path.join(uiRoot, "node_modules/.bin/vite");
+function buildPackages() {
+  const repoRoot = path.resolve(root, "../..");
   try {
-    console.log("[whoami] building @whoami/ui via vite...");
+    console.log("[codefy] compiling monorepo packages (@whoami/types, @whoami/core, @whoami/ui)...");
+    execSync("npx tsc -b packages/types packages/core packages/ui", { cwd: repoRoot, stdio: "inherit" });
+    execSync("npm --prefix packages/core run build:node && npm --prefix packages/core run build:query && npm --prefix packages/core run build:wasm", { cwd: repoRoot, stdio: "inherit" });
+    const uiRoot = path.resolve(root, "../../packages/ui");
+    const viteBin = path.join(uiRoot, "node_modules/.bin/vite");
     execSync(`"${viteBin}" build`, { cwd: uiRoot, stdio: "inherit" });
   } catch (err) {
-    console.warn("[whoami] Note: Vite build for @whoami/ui returned:", err.message);
+    console.warn("[codefy] Note: Package build warning:", err.message);
   }
 }
 
@@ -166,7 +169,7 @@ function copyWasmAssets() {
 }
 
 async function run() {
-  buildUi();
+  buildPackages();
 
   if (watch) {
     const [hostCtx, webviewCtx] = await Promise.all([

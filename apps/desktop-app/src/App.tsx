@@ -24,7 +24,7 @@ import type {
   UserSettings,
   WorkspaceGraph,
 } from "@whoami/types";
-import { deduplicateFindings } from "@whoami/types";
+import { deduplicateFindings, isSastProfile } from "@whoami/types";
 import {
   ChatPanel,
   FloatingDetailCard,
@@ -633,7 +633,7 @@ export function App(): ReactElement {
       });
 
       try {
-        const isSastTarget = profiles.some((p) => p.startsWith("sast-"));
+        const isSastTarget = profiles.some((p) => isSastProfile(p));
         const regRes = await bridge.request<
           Extract<BridgeMessage, { type: "register-target-request" }>,
           Extract<BridgeMessage, { type: "register-target-result" }>
@@ -661,7 +661,7 @@ export function App(): ReactElement {
             total: profiles.length,
           });
 
-          const isSast = profile.startsWith("sast-");
+          const isSast = isSastProfile(profile);
           let scanId: string;
           if (isSast) {
             const submitRes = await bridge.request<

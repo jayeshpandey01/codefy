@@ -48,6 +48,9 @@ const deployDirRelative = path.join("out", "deploy");
 const deployDir = path.join(repoRoot, deployDirRelative);
 const vsixOutDir = path.join(repoRoot, "dist-vsix");
 
+console.log(`[package] building codefy-whoami extension...`);
+run("node", [path.join(appRoot, "scripts", "build.js")], { cwd: appRoot });
+
 if (fs.existsSync(deployDir)) {
   fs.rmSync(deployDir, { recursive: true, force: true });
 }

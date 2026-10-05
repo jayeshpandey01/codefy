@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/jayeshpandey01/codefy/compare/v0.2.0...v0.3.0) (2026-10-06)
+
+### Features
+* Unified E2E integration with SAST (25 tools) and DAST (30 tools) microservices via shared JWT from cmd-d-llm Gateway
+* Automatic Render service fallback routing for high availability
+* Full tool catalog support in scan header across static and dynamic security engines
+
 ## [0.2.0](https://github.com/jayeshpandey01/codefy/compare/v0.1.1...v0.2.0) (2026-10-01)
 
 

@@ -31,7 +31,7 @@ import type {
   WorkspaceGraph,
   WorkspaceGraphNode,
 } from "@whoami/types";
-import { deduplicateFindings, toStructuredError } from "@whoami/types";
+import { deduplicateFindings, toStructuredError, isSastProfile } from "@whoami/types";
 import {
   ActionableErrorBanner,
   BridgeProvider,
@@ -980,7 +980,7 @@ function App(): ReactElement {
       profile: AllScanProfile,
       ruleTags?: string[],
     ): Promise<ScanRead> => {
-      const isSast = profile.startsWith("sast-");
+      const isSast = isSastProfile(profile);
       if (isSast) {
         const res = await bridge.request<
           Extract<BridgeMessage, { type: "submit-sast-scan-request" }>,
@@ -1070,7 +1070,7 @@ function App(): ReactElement {
       });
 
       try {
-        const isSast = profiles.some((p) => p.startsWith("sast-"));
+        const isSast = profiles.some((p) => isSastProfile(p));
         const targetRead = await handleRegisterTarget({
           value: target,
           owner: authSession?.name || "Account User",
@@ -1094,7 +1094,7 @@ function App(): ReactElement {
             total: profiles.length,
           });
           const scan = await handleSubmitScan(targetRead.id, profile);
-          submitted.push({ profile, scanId: scan.id, isSast: profile.startsWith("sast-") });
+          submitted.push({ profile, scanId: scan.id, isSast: isSastProfile(profile) });
         }
 
         const statusById = new Map<string, ScanRead>();

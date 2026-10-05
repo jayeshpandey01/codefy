@@ -35,6 +35,48 @@ export type SastProfile =
 
 export type AllScanProfile = ScanProfile | SastProfile | string;
 
+export const SAST_TOOLS_SET: ReadonlySet<string> = new Set([
+  "semgrep",
+  "bearer",
+  "bandit",
+  "eslint",
+  "njsscan",
+  "pmd",
+  "gosec",
+  "brakeman",
+  "flawfinder",
+  "cppcheck",
+  "gitleaks",
+  "trufflehog",
+  "detect-secrets",
+  "trivy",
+  "osv-scanner",
+  "pip-audit",
+  "checkov",
+  "kics",
+  "hadolint",
+  "zizmor",
+  "slither",
+  "spectral",
+  "shellcheck",
+  "mobsfscan",
+  "syft",
+  "sast-semgrep",
+  "sast-bearer",
+  "sast-bandit",
+  "sast-eslint",
+  "sast-joern",
+  "sast-codeql",
+  "sast-gitleaks",
+  "sast-trufflehog",
+]);
+
+export function isSastProfile(profile?: string | null): boolean {
+  if (!profile) return false;
+  const p = profile.toLowerCase().trim();
+  return p.startsWith("sast-") || SAST_TOOLS_SET.has(p);
+}
+
 /**
  * The 3-Tier Security Architecture:
  * - "local-offline": 100% offline, in-editor AST & syntax analysis (zero internet required).

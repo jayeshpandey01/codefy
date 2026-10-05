@@ -5202,6 +5202,12 @@ var ScanOrchestratorClient = class {
    */
   async submitScan(scan, idempotencyKey) {
     if (this.useMicroservices) {
+      if ((0, import_types3.isSastProfile)(scan.profile)) {
+        return this.submitSastScan(
+          { target_id: scan.target_id, profile: scan.profile },
+          idempotencyKey
+        );
+      }
       const target = this.targetMap.get(scan.target_id);
       const rawTarget = target?.value || scan.target_id;
       const targetUrl = rawTarget.startsWith("http://") || rawTarget.startsWith("https://") ? rawTarget : `https://${rawTarget}`;
