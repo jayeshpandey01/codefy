@@ -5,12 +5,13 @@ import type {
   DastToolCatalogResponse,
   DastValidateTargetResponse,
 } from "@whoami/types";
-import { DEFAULT_DAST_SERVICE_URL } from "../orchestrator/constants.js";
+import { DEFAULT_DAST_SERVICE_URL, FALLBACK_DAST_SERVICE_URL } from "../orchestrator/constants.js";
 import { SecurityServiceApiError } from "../sast/client.js";
 
 export interface DastClientOptions {
   readonly baseUrl?: string;
   readonly jwtToken?: string;
+  readonly apiKey?: string;
   readonly timeoutMs?: number;
   readonly fetchImpl?: typeof fetch;
 }
@@ -25,33 +26,42 @@ export interface PollDastJobOptions {
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export class DastClient {
-  private readonly baseUrl: string;
+  private baseUrl: string;
+  private readonly fallbackBaseUrl?: string;
   private readonly jwtToken?: string;
+  private readonly apiKey?: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: DastClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
+    this.fallbackBaseUrl = FALLBACK_DAST_SERVICE_URL.replace(/\/+$/, "");
     this.jwtToken = options.jwtToken?.trim();
+    this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
 
   private getAuthHeader(): Record<string, string> {
-    if (!this.jwtToken) {
+    const token = this.jwtToken || this.apiKey;
+    if (!token) {
       throw new SecurityServiceApiError(
-        "Authentication required: No JWT bearer token configured for DAST service.",
+        "Authentication required: No JWT bearer token or API key configured for DAST service.",
         401,
       );
     }
-    return { Authorization: `Bearer ${this.jwtToken}` };
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
+    return headers;
   }
 
-  private async request<T>(
-    path: string,
-    init: RequestInit = {},
-    requireAuth = true,
-  ): Promise<T> {
+  private async executeFetch(
+    url: string,
+    init: RequestInit,
+    requireAuth: boolean,
+  ): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -63,11 +73,37 @@ export class DastClient {
         }
       }
 
-      const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      return await this.fetchImpl(url, {
         ...init,
         headers,
         signal: controller.signal,
       });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async request<T>(
+    path: string,
+    init: RequestInit = {},
+    requireAuth = true,
+  ): Promise<T> {
+    let targetBaseUrl = this.baseUrl;
+    try {
+      let res = await this.executeFetch(`${targetBaseUrl}${path}`, init, requireAuth);
+
+      // If primary returns 404 (or 502/503), attempt fallback if available
+      if ((res.status === 404 || res.status === 502 || res.status === 503) && this.fallbackBaseUrl && targetBaseUrl !== this.fallbackBaseUrl) {
+        try {
+          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
+          if (fallbackRes.ok) {
+            this.baseUrl = this.fallbackBaseUrl;
+            return (await fallbackRes.json()) as T;
+          }
+        } catch {
+          // Fall back to original response error handling
+        }
+      }
 
       if (!res.ok) {
         let detail = `Request failed with status ${res.status}`;
@@ -84,13 +120,39 @@ export class DastClient {
 
       return (await res.json()) as T;
     } catch (err: unknown) {
-      if (err instanceof SecurityServiceApiError) throw err;
+      if (err instanceof SecurityServiceApiError) {
+        // If 404 on primary and not yet tried fallback
+        if ((err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503) && this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
+          try {
+            const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
+            if (fallbackRes.ok) {
+              this.baseUrl = this.fallbackBaseUrl;
+              return (await fallbackRes.json()) as T;
+            }
+          } catch {
+            // Re-throw original
+          }
+        }
+        throw err;
+      }
+
+      // Network error on primary -> try fallback
+      if (this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
+        try {
+          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
+          if (fallbackRes.ok) {
+            this.baseUrl = this.fallbackBaseUrl;
+            return (await fallbackRes.json()) as T;
+          }
+        } catch {
+          // Fall through to error below
+        }
+      }
+
       throw new SecurityServiceApiError(
         err instanceof Error ? err.message : "Network error contacting DAST service",
         0,
       );
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -107,11 +169,30 @@ export class DastClient {
    * Asserts the target does not resolve to private/loopback/cloud metadata address space.
    */
   async validateTarget(targetUrl: string): Promise<DastValidateTargetResponse> {
-    return this.request(
+    const raw = await this.request<Record<string, unknown>>(
       `/v1/dast/validate-target?target_url=${encodeURIComponent(targetUrl)}`,
       { method: "GET" },
       true,
     );
+    const valid =
+      typeof raw.valid === "boolean"
+        ? raw.valid
+        : typeof raw.ok === "boolean"
+          ? raw.ok
+          : Boolean(raw.safe_to_scan);
+
+    return {
+      valid,
+      ok: valid,
+      safe_to_scan: valid,
+      target_url: (raw.target_url as string) || targetUrl,
+      hostname: raw.hostname as string | undefined,
+      resolved_ips: raw.resolved_ips as readonly string[] | undefined,
+      ip_address: raw.ip_address as string | undefined,
+      message: raw.message as string | undefined,
+      code: raw.code as string | undefined,
+      reason: (raw.reason as string) || (raw.message as string) || undefined,
+    };
   }
 
   async submitScan(req: DastScanRequest): Promise<DastScanResponse> {

@@ -1,6 +1,38 @@
-import { deflateRawSync } from "node:zlib";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+function getNodeModule<T = Record<string, unknown>>(name: string): T | null {
+  try {
+    const g = globalThis as {
+      process?: {
+        versions?: { node?: string };
+        getBuiltinModule?: (n: string) => unknown;
+      };
+      require?: (n: string) => unknown;
+    };
+    if (g.process?.versions?.node) {
+      if (typeof g.process.getBuiltinModule === "function") {
+        const mod = g.process.getBuiltinModule(name) || g.process.getBuiltinModule(name.replace(/^node:/, ""));
+        if (mod) return mod as T;
+      }
+      if (typeof g.require === "function") {
+        return g.require(name) as T;
+      }
+    }
+  } catch {
+    // Non-node runtime
+  }
+  return null;
+}
+
+function tryDeflate(data: Uint8Array): Uint8Array | null {
+  try {
+    const mod = getNodeModule<{ deflateRawSync?: (b: Uint8Array) => Uint8Array }>("node:zlib");
+    if (typeof mod?.deflateRawSync === "function") {
+      return mod.deflateRawSync(data);
+    }
+  } catch {
+    // Fall back to uncompressed stored
+  }
+  return null;
+}
 
 export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   ".git",
@@ -107,14 +139,10 @@ export function buildZipArchive(entries: readonly ZipEntry[]): Uint8Array {
 
     // Attempt DEFLATE compression if payload > 32 bytes
     if (uncompressedData.length > 32) {
-      try {
-        const deflated = deflateRawSync(uncompressedData);
-        if (deflated.length < uncompressedData.length) {
-          compressedData = deflated;
-          compressionMethod = 8; // DEFLATE
-        }
-      } catch {
-        // Fall back to Stored
+      const deflated = tryDeflate(uncompressedData);
+      if (deflated && deflated.length < uncompressedData.length) {
+        compressedData = deflated;
+        compressionMethod = 8; // DEFLATE
       }
     }
 
@@ -228,6 +256,24 @@ export function packageWorkspaceDirectory(
     customIgnores?: readonly string[];
   } = {},
 ): { zipData: Uint8Array; stats: PackageDirectoryStats } {
+  const fsMod = getNodeModule<{
+    existsSync: (p: string) => boolean;
+    readFileSync: (p: string) => Uint8Array;
+    readdirSync: (p: string) => string[];
+    statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean; size: number };
+  }>("node:fs");
+  const pathMod = getNodeModule<{
+    join: (...args: string[]) => string;
+    relative: (from: string, to: string) => string;
+  }>("node:path");
+
+  if (!fsMod || !pathMod) {
+    throw new Error("packageWorkspaceDirectory is only supported in a Node.js runtime environment.");
+  }
+
+  const { existsSync, readFileSync, readdirSync, statSync } = fsMod;
+  const { join, relative } = pathMod;
+
   const maxFiles = options.maxFiles ?? 2000;
   const maxBytes = options.maxBytes ?? 50 * 1024 * 1024; // 50MB SAST limit
   const customIgnores = options.customIgnores ?? [];
@@ -243,19 +289,19 @@ export function packageWorkspaceDirectory(
   const entries: ZipEntry[] = [];
 
   function walk(currentDir: string): void {
-    if (!existsSync(currentDir)) return;
-    const items = readdirSync(currentDir);
+    if (!existsSync!(currentDir)) return;
+    const items = readdirSync!(currentDir);
 
     for (const item of items) {
-      const fullPath = join(currentDir, item);
-      const relPath = relative(rootDir, fullPath).replace(/\\/g, "/");
+      const fullPath = join!(currentDir, item);
+      const relPath = relative!(rootDir, fullPath).replace(/\\/g, "/");
 
       if (isFileIgnored(relPath, customIgnores)) {
         stats.excludedFiles++;
         continue;
       }
 
-      const st = statSync(fullPath);
+      const st = statSync!(fullPath);
       if (st.isDirectory()) {
         walk(fullPath);
       } else if (st.isFile()) {
@@ -267,7 +313,7 @@ export function packageWorkspaceDirectory(
         }
 
         try {
-          const content = readFileSync(fullPath);
+          const content = readFileSync!(fullPath);
           entries.push({
             path: relPath,
             data: new Uint8Array(content.buffer, content.byteOffset, content.byteLength),

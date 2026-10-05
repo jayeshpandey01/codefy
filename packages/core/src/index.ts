@@ -126,6 +126,7 @@ export {
   DEFAULT_AUTH_SERVICE_URL,
   DEFAULT_SAST_SERVICE_URL,
   DEFAULT_DAST_SERVICE_URL,
+  FALLBACK_DAST_SERVICE_URL,
 } from "./orchestrator/constants.js";
 export {
   normalizeSastJobFindings,

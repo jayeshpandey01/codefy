@@ -2209,7 +2209,7 @@ function executeRagRetrieval(query, findings = [], options = {}) {
 }
 
 // src/llm/hosted-client.ts
-var DEFAULT_AI_GATEWAY_URL = "https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com";
+var DEFAULT_AI_GATEWAY_URL = "https://cmd-d-llm.vercel.app";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -2566,6 +2566,15 @@ ${prompt}` : prompt);
   }
 };
 
+// src/orchestrator/constants.ts
+var DEFAULT_ORCHESTRATOR_URL = "https://axiom-xjkc.onrender.com";
+var DEFAULT_AUTH_SERVICE_URL = "https://cmd-d-llm.vercel.app";
+var DEFAULT_SAST_SERVICE_URL = "https://sast-dutn.onrender.com";
+var DEFAULT_DAST_SERVICE_URL = "https://dast-dutn.onrender.com";
+var FALLBACK_DAST_SERVICE_URL = "https://dast-js9w.onrender.com";
+var DEFAULT_OPERATOR_API_KEY = "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
+var DEFAULT_ADMIN_API_KEY = "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
+
 // src/auth/gateway-auth-client.ts
 var AuthApiError = class extends Error {
 };
@@ -2588,7 +2597,7 @@ var GatewayAuthClient = class {
   timeoutMs;
   fetchImpl;
   constructor(options = {}) {
-    this.baseUrl = (options.baseUrl || DEFAULT_AI_GATEWAY_URL).replace(/\/+$/, "");
+    this.baseUrl = (options.baseUrl || DEFAULT_AUTH_SERVICE_URL || DEFAULT_AI_GATEWAY_URL).replace(/\/+$/, "");
     this.timeoutMs = options.timeoutMs ?? 45e3;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
@@ -3503,13 +3512,1104 @@ function generateMarkdownReport(session, secrets = [], options = DEFAULT_OPTIONS
   };
 }
 
-// src/orchestrator/constants.ts
-var DEFAULT_ORCHESTRATOR_URL = "https://axiom-xjkc.onrender.com";
+// src/sast/client.ts
+var SecurityServiceApiError = class extends Error {
+  constructor(message, statusCode, detail) {
+    super(message);
+    this.statusCode = statusCode;
+    this.detail = detail;
+    this.name = "SecurityServiceApiError";
+  }
+  statusCode;
+  detail;
+};
+var TERMINAL_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "expired"]);
+var SastClient = class {
+  baseUrl;
+  jwtToken;
+  apiKey;
+  timeoutMs;
+  fetchImpl;
+  constructor(options = {}) {
+    this.baseUrl = (options.baseUrl || DEFAULT_SAST_SERVICE_URL).replace(/\/+$/, "");
+    this.jwtToken = options.jwtToken?.trim();
+    this.apiKey = options.apiKey?.trim();
+    this.timeoutMs = options.timeoutMs ?? 6e4;
+    this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
+  }
+  getAuthHeader() {
+    const token = this.jwtToken || this.apiKey;
+    if (!token) {
+      throw new SecurityServiceApiError(
+        "Authentication required: No JWT bearer token or API key configured for SAST service.",
+        401
+      );
+    }
+    const headers = { Authorization: `Bearer ${token}` };
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
+    return headers;
+  }
+  async request(path, init = {}, requireAuth = true) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers = new Headers(init.headers || {});
+      if (requireAuth) {
+        const authHeader = this.getAuthHeader();
+        for (const [k, v] of Object.entries(authHeader)) {
+          headers.set(k, v);
+        }
+      }
+      const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        let detail = `Request failed with status ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (errJson && typeof errJson === "object" && "detail" in errJson) {
+            detail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch {
+        }
+        throw new SecurityServiceApiError(detail, res.status, detail);
+      }
+      return await res.json();
+    } catch (err) {
+      if (err instanceof SecurityServiceApiError) throw err;
+      throw new SecurityServiceApiError(
+        err instanceof Error ? err.message : "Network error contacting SAST service",
+        0
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async getHealth() {
+    return this.request("/health", { method: "GET" }, false);
+  }
+  async getTools() {
+    return this.request("/v1/tools", { method: "GET" }, false);
+  }
+  async submitPassiveScan(zipData, filename = "source.zip") {
+    const formData = new FormData();
+    const blob = zipData instanceof Blob ? zipData : new Blob([zipData]);
+    formData.append("file", blob, filename);
+    return this.request("/v1/sast/scan", {
+      method: "POST",
+      body: formData
+    });
+  }
+  async submitActiveScan(zipData, filename = "source.zip") {
+    const formData = new FormData();
+    const blob = zipData instanceof Blob ? zipData : new Blob([zipData]);
+    formData.append("file", blob, filename);
+    return this.request("/v1/sast/scan/active", {
+      method: "POST",
+      body: formData
+    });
+  }
+  async requestUploadUrl(req = {}) {
+    return this.request("/v1/sast/scan/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req)
+    });
+  }
+  async submitDirectScan(req) {
+    return this.request("/v1/sast/scan/direct", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req)
+    });
+  }
+  async submitRepoScan(req) {
+    return this.request("/v1/sast/scan/repo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req)
+    });
+  }
+  async getJob(jobId) {
+    return this.request(`/v1/jobs/${encodeURIComponent(jobId)}`, { method: "GET" });
+  }
+  async deleteJob(jobId) {
+    return this.request(`/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" });
+  }
+  async getAutofixPatch(jobId) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers = new Headers(this.getAuthHeader());
+      const res = await this.fetchImpl(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/patch`, {
+        method: "GET",
+        headers,
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        throw new SecurityServiceApiError(
+          `Failed to fetch patch: status ${res.status}`,
+          res.status
+        );
+      }
+      return await res.text();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async exportFindings(jobId, format = "sarif") {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers = new Headers(this.getAuthHeader());
+      const res = await this.fetchImpl(
+        `${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/export?format=${encodeURIComponent(format)}`,
+        {
+          method: "GET",
+          headers,
+          signal: controller.signal
+        }
+      );
+      if (!res.ok) {
+        throw new SecurityServiceApiError(
+          `Export failed with status ${res.status}`,
+          res.status
+        );
+      }
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async pollJobUntilComplete(jobId, options = {}) {
+    const intervalMs = options.intervalMs ?? 3e3;
+    const maxIntervalMs = options.maxIntervalMs ?? 15e3;
+    const maxWaitMs = options.maxWaitMs ?? 40 * 60 * 1e3;
+    const startTime = Date.now();
+    let currentInterval = intervalMs;
+    while (Date.now() - startTime < maxWaitMs) {
+      const job = await this.getJob(jobId);
+      options.onProgress?.(job);
+      if (TERMINAL_STATUSES.has(job.status)) {
+        return job;
+      }
+      await new Promise((resolve) => setTimeout(resolve, currentInterval));
+      currentInterval = Math.min(Math.round(currentInterval * 1.3), maxIntervalMs);
+    }
+    throw new SecurityServiceApiError(
+      `Timed out waiting for SAST job ${jobId} to complete after ${maxWaitMs}ms`,
+      408
+    );
+  }
+};
+
+// src/dast/client.ts
+var TERMINAL_STATUSES2 = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
+var DastClient = class {
+  baseUrl;
+  fallbackBaseUrl;
+  jwtToken;
+  apiKey;
+  timeoutMs;
+  fetchImpl;
+  constructor(options = {}) {
+    this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
+    this.fallbackBaseUrl = FALLBACK_DAST_SERVICE_URL.replace(/\/+$/, "");
+    this.jwtToken = options.jwtToken?.trim();
+    this.apiKey = options.apiKey?.trim();
+    this.timeoutMs = options.timeoutMs ?? 6e4;
+    this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
+  }
+  getAuthHeader() {
+    const token = this.jwtToken || this.apiKey;
+    if (!token) {
+      throw new SecurityServiceApiError(
+        "Authentication required: No JWT bearer token or API key configured for DAST service.",
+        401
+      );
+    }
+    const headers = { Authorization: `Bearer ${token}` };
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
+    return headers;
+  }
+  async executeFetch(url, init, requireAuth) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers = new Headers(init.headers || {});
+      if (requireAuth) {
+        const authHeader = this.getAuthHeader();
+        for (const [k, v] of Object.entries(authHeader)) {
+          headers.set(k, v);
+        }
+      }
+      return await this.fetchImpl(url, {
+        ...init,
+        headers,
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async request(path, init = {}, requireAuth = true) {
+    let targetBaseUrl = this.baseUrl;
+    try {
+      let res = await this.executeFetch(`${targetBaseUrl}${path}`, init, requireAuth);
+      if ((res.status === 404 || res.status === 502 || res.status === 503) && this.fallbackBaseUrl && targetBaseUrl !== this.fallbackBaseUrl) {
+        try {
+          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
+          if (fallbackRes.ok) {
+            this.baseUrl = this.fallbackBaseUrl;
+            return await fallbackRes.json();
+          }
+        } catch {
+        }
+      }
+      if (!res.ok) {
+        let detail = `Request failed with status ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (errJson && typeof errJson === "object" && "detail" in errJson) {
+            detail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch {
+        }
+        throw new SecurityServiceApiError(detail, res.status, detail);
+      }
+      return await res.json();
+    } catch (err) {
+      if (err instanceof SecurityServiceApiError) {
+        if ((err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503) && this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
+          try {
+            const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
+            if (fallbackRes.ok) {
+              this.baseUrl = this.fallbackBaseUrl;
+              return await fallbackRes.json();
+            }
+          } catch {
+          }
+        }
+        throw err;
+      }
+      if (this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
+        try {
+          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
+          if (fallbackRes.ok) {
+            this.baseUrl = this.fallbackBaseUrl;
+            return await fallbackRes.json();
+          }
+        } catch {
+        }
+      }
+      throw new SecurityServiceApiError(
+        err instanceof Error ? err.message : "Network error contacting DAST service",
+        0
+      );
+    }
+  }
+  async getHealth() {
+    return this.request("/health", { method: "GET" }, false);
+  }
+  async getTools() {
+    return this.request("/v1/dast/tools", { method: "GET" }, false);
+  }
+  /**
+   * Pre-flight SSRF Guardrail validation.
+   * Asserts the target does not resolve to private/loopback/cloud metadata address space.
+   */
+  async validateTarget(targetUrl) {
+    const raw = await this.request(
+      `/v1/dast/validate-target?target_url=${encodeURIComponent(targetUrl)}`,
+      { method: "GET" },
+      true
+    );
+    const valid = typeof raw.valid === "boolean" ? raw.valid : typeof raw.ok === "boolean" ? raw.ok : Boolean(raw.safe_to_scan);
+    return {
+      valid,
+      ok: valid,
+      safe_to_scan: valid,
+      target_url: raw.target_url || targetUrl,
+      hostname: raw.hostname,
+      resolved_ips: raw.resolved_ips,
+      ip_address: raw.ip_address,
+      message: raw.message,
+      code: raw.code,
+      reason: raw.reason || raw.message || void 0
+    };
+  }
+  async submitScan(req) {
+    return this.request("/v1/dast/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req)
+    });
+  }
+  async getJob(jobId) {
+    return this.request(`/v1/jobs/${encodeURIComponent(jobId)}`, { method: "GET" });
+  }
+  async deleteJob(jobId) {
+    return this.request(`/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" });
+  }
+  async exportFindings(jobId, format = "sarif") {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers = new Headers(this.getAuthHeader());
+      const res = await this.fetchImpl(
+        `${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/export?format=${encodeURIComponent(format)}`,
+        {
+          method: "GET",
+          headers,
+          signal: controller.signal
+        }
+      );
+      if (!res.ok) {
+        throw new SecurityServiceApiError(
+          `Export failed with status ${res.status}`,
+          res.status
+        );
+      }
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async pollJobUntilComplete(jobId, options = {}) {
+    const intervalMs = options.intervalMs ?? 3e3;
+    const maxIntervalMs = options.maxIntervalMs ?? 15e3;
+    const maxWaitMs = options.maxWaitMs ?? 40 * 60 * 1e3;
+    const startTime = Date.now();
+    let currentInterval = intervalMs;
+    while (Date.now() - startTime < maxWaitMs) {
+      const job = await this.getJob(jobId);
+      options.onProgress?.(job);
+      if (TERMINAL_STATUSES2.has(job.status)) {
+        return job;
+      }
+      await new Promise((resolve) => setTimeout(resolve, currentInterval));
+      currentInterval = Math.min(Math.round(currentInterval * 1.3), maxIntervalMs);
+    }
+    throw new SecurityServiceApiError(
+      `Timed out waiting for DAST job ${jobId} to complete after ${maxWaitMs}ms`,
+      408
+    );
+  }
+};
+
+// src/orchestrator/normalizer.ts
+function mapSeverity(rawSeverity) {
+  const normalized = (rawSeverity || "low").toLowerCase();
+  if (normalized === "critical") return "critical";
+  if (normalized === "high" || normalized === "error") return "high";
+  if (normalized === "medium" || normalized === "warn" || normalized === "warning")
+    return "medium";
+  return "low";
+}
+function detectSinkClass(title, desc, code) {
+  const text = `${title} ${desc || ""} ${code || ""}`.toLowerCase();
+  if (text.includes("secret") || text.includes("credential") || text.includes("token") || text.includes("trufflehog") || text.includes("gitleaks") || text.includes("entropy") || text.includes("cors") || text.includes("cwe-942") || text.includes("jwt") || text.includes("api_key") || text.includes("password") || text.includes("cwe-798") || text.includes("cwe-522")) {
+    return "secret-exposure";
+  }
+  if (text.includes("sql") || text.includes("injection") && text.includes("db") || text.includes("cwe-89")) {
+    return "sql-injection";
+  }
+  if (text.includes("ssrf") || text.includes("request forgery") || text.includes("open redirect") || text.includes("crlf") || text.includes("cwe-113") || text.includes("cwe-918")) {
+    return "ssrf";
+  }
+  if (text.includes("xss") || text.includes("cross-site scripting") || text.includes("ssti") || text.includes("template injection") || text.includes("eval") || text.includes("code injection") || text.includes("cwe-79") || text.includes("cwe-94") || text.includes("cwe-1336")) {
+    return "code-injection";
+  }
+  if (text.includes("exec") || text.includes("command") || /\b(exec|execa|spawn|command|shell|system-call)\b/i.test(text) || text.includes("rce") || text.includes("shell") || text.includes("system-call") || text.includes("command injection") || text.includes("cwe-78")) {
+    return "command-injection";
+  }
+  if (text.includes("traversal") || text.includes("file read") || text.includes("directory") || text.includes("cwe-22")) {
+    return "path-traversal";
+  }
+  if (text.includes("prototype") || text.includes("pollution") || text.includes("cwe-1321")) {
+    return "prototype-pollution";
+  }
+  return "ssrf";
+}
+function slugify(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
+}
+function parseLocation(locStr, fallbackFile = "target", fallbackLine = 1) {
+  if (!locStr) return { file: fallbackFile, line: fallbackLine };
+  const cleaned = locStr.replace(/\s*\([^)]*\)$/, "").trim();
+  const match = cleaned.match(/^(.*?):(\d+)(?::\d+)?$/);
+  if (match && match[1] && match[2]) {
+    return { file: match[1], line: parseInt(match[2], 10) || fallbackLine };
+  }
+  return { file: cleaned || fallbackFile, line: fallbackLine };
+}
+function extractCwe2(rawCwe) {
+  if (!rawCwe) return void 0;
+  if (Array.isArray(rawCwe)) {
+    for (const item of rawCwe) {
+      const match2 = String(item).match(/(CWE-\d+)/i);
+      if (match2 && match2[1]) return match2[1].toUpperCase();
+    }
+    return void 0;
+  }
+  const match = String(rawCwe).match(/(CWE-\d+)/i);
+  return match && match[1] ? match[1].toUpperCase() : rawCwe;
+}
+function normalizeRemoteFindings(result, targetValue = "target", options) {
+  const findings = [];
+  const createdAt = result.created_at || (/* @__PURE__ */ new Date()).toISOString();
+  const rawFindings = result.summary?.findings || [];
+  for (let i = 0; i < rawFindings.length; i++) {
+    const raw = rawFindings[i];
+    const rawAny = raw;
+    const rawCode = typeof rawAny.code === "string" ? rawAny.code : "";
+    const evidenceObj = typeof rawAny.evidence === "object" && rawAny.evidence !== null ? rawAny.evidence : void 0;
+    const hasSastToolPrefix = rawCode.startsWith("JOERN") || rawCode.startsWith("SEMGREP") || rawCode.startsWith("TRUFFLEHOG") || rawCode.startsWith("GITLEAKS") || rawCode.startsWith("CODEQL") || rawCode.startsWith("AST_GREP");
+    const hasSastEvidence = Boolean(
+      evidenceObj?.flow || evidenceObj?.detector || evidenceObj?.check_id || typeof evidenceObj?.file === "string" && !evidenceObj.file.includes("://") && /\.(tsx?|jsx?|py|java|go|c|cpp|rs|php|rb|html|vue|svelte)$/i.test(evidenceObj.file)
+    );
+    const hasDastIndicators = Boolean(
+      rawAny.matched_at || rawAny.template_id || rawAny.host || rawCode.startsWith("SEC_HEADER_") || rawCode.startsWith("SSL_") || rawCode.startsWith("TLS_") || rawCode.startsWith("CORS_") || rawCode.startsWith("CSP_") || rawCode.startsWith("WAF_") || rawCode.startsWith("PORT_") || rawCode.startsWith("OPEN_PORT_") || rawCode.startsWith("DNS_") || rawCode.startsWith("NUCLEI_") || rawCode.startsWith("DALFOX_") || rawCode.startsWith("KATANA_") || rawCode.startsWith("HTTPX_") || rawCode.startsWith("FEROX_") || rawCode.startsWith("FFUF_") || rawCode.startsWith("ZAP_") || rawCode.startsWith("NIKTO_")
+    );
+    let isSastFinding;
+    if (options?.isSast !== void 0) {
+      isSastFinding = options.isSast;
+    } else if (options?.profile) {
+      isSastFinding = options.profile.startsWith("sast-");
+    } else if (hasDastIndicators) {
+      isSastFinding = false;
+    } else if (hasSastToolPrefix || hasSastEvidence) {
+      isSastFinding = true;
+    } else {
+      isSastFinding = "code" in raw && typeof raw.code === "string";
+    }
+    const findingId = `remote-${result.scan_job_id}-${i + 1}`;
+    const severity = mapSeverity(raw.severity);
+    if (isSastFinding) {
+      const item = raw;
+      const evidence = typeof item.evidence === "object" && item.evidence !== null ? item.evidence : void 0;
+      const codeStr = item.code || "";
+      const isJoern = codeStr.startsWith("JOERN") || Boolean(evidence?.flow);
+      const isTrufflehog = codeStr.startsWith("TRUFFLEHOG") || Boolean(evidence?.detector);
+      const isGitleaks = codeStr.startsWith("GITLEAKS") || item.title.toLowerCase().includes("gitleaks") || codeStr.toLowerCase().includes("entropy");
+      const isCodeql = codeStr.startsWith("CODEQL") || item.title.toLowerCase().includes("codeql");
+      const isSemgrep = codeStr.startsWith("SEMGREP") || Boolean(evidence?.check_id);
+      const sinkClass = detectSinkClass(item.title, item.description, codeStr);
+      const cwe = extractCwe2(evidence?.cwe) || (sinkClass === "sql-injection" ? "CWE-89" : sinkClass === "command-injection" ? "CWE-78" : sinkClass === "secret-exposure" ? "CWE-798" : sinkClass === "path-traversal" ? "CWE-22" : severity === "critical" ? "CWE-94" : "CWE-200");
+      let traceSteps = [];
+      if ((isJoern || isCodeql) && evidence?.flow && evidence.flow.length > 0) {
+        const flow = evidence.flow;
+        traceSteps = flow.map((step, idx) => {
+          const parsed = parseLocation(
+            step.location,
+            evidence.file || targetValue,
+            evidence.line || 1
+          );
+          let role = "sanitizer";
+          if (idx === 0 || step.type.toLowerCase().includes("source")) {
+            role = "source";
+          } else if (idx === flow.length - 1 || step.type.toLowerCase().includes("sink")) {
+            role = "sink";
+          }
+          const varLabel = step.variable ? `${step.variable}: ` : "";
+          return {
+            role,
+            label: `${varLabel}${step.type}`,
+            filePath: parsed.file,
+            line: parsed.line
+          };
+        });
+      } else if (isTrufflehog || isGitleaks) {
+        const parsed = parseLocation(
+          evidence?.location,
+          evidence?.file || targetValue,
+          evidence?.line || 1
+        );
+        const detectorName = evidence?.detector || (isGitleaks ? "Gitleaks Entropy Secret" : "Secret");
+        const verifiedLabel = evidence?.verified ? " [VERIFIED LIVE]" : "";
+        traceSteps = [
+          {
+            role: "source",
+            label: `Scanned File: ${parsed.file}`,
+            filePath: parsed.file,
+            line: parsed.line
+          },
+          {
+            role: "sink",
+            label: `Exposed ${detectorName} Credential${verifiedLabel}`,
+            filePath: parsed.file,
+            line: parsed.line
+          }
+        ];
+      } else {
+        const parsed = parseLocation(
+          evidence?.location,
+          evidence?.file || targetValue,
+          evidence?.line || 1
+        );
+        const checkId = evidence?.check_id || item.code || "sast-rule";
+        const codeSnippet = evidence?.snippet ? `: ${evidence.snippet.substring(0, 60)}` : "";
+        traceSteps = [
+          {
+            role: "source",
+            label: `Entry Point: ${parsed.file}`,
+            filePath: parsed.file,
+            line: parsed.line
+          },
+          {
+            role: "sanitizer",
+            label: `Pattern Rule: ${checkId}`,
+            filePath: parsed.file,
+            line: parsed.line
+          },
+          {
+            role: "sink",
+            label: `Vulnerability Sink (Line ${parsed.line})${codeSnippet}`,
+            filePath: parsed.file,
+            line: parsed.line
+          }
+        ];
+      }
+      const rotationLink = typeof evidence?.extra_data === "object" && evidence.extra_data ? String(evidence.extra_data.rotation_guide || "") : "";
+      findings.push({
+        id: findingId,
+        ruleId: `remote-${slugify(codeStr || item.title)}`,
+        status: "confirmed",
+        severity,
+        title: item.title,
+        description: item.description,
+        cwe,
+        code: codeStr,
+        scope: isTrufflehog || isGitleaks ? "secrets" : "code",
+        hint: item.remediation,
+        fix: item.remediation,
+        link: rotationLink || void 0,
+        trace: {
+          steps: traceSteps,
+          sinkClass
+        },
+        createdAt
+      });
+    } else {
+      const item = raw;
+      const rawCode2 = typeof item.code === "string" ? item.code : "";
+      const ruleSlug = item.template_id || (rawCode2 ? slugify(rawCode2) : slugify(item.title));
+      const hostOrPath = item.matched_at || item.host || targetValue;
+      const sinkClass = detectSinkClass(item.title, item.description, rawCode2);
+      const titleLower = item.title.toLowerCase();
+      const cwe = extractCwe2(item.cwe) || (titleLower.includes("xss") || titleLower.includes("cross-site scripting") ? "CWE-79" : titleLower.includes("ssti") || titleLower.includes("template injection") ? "CWE-1336" : titleLower.includes("crlf") ? "CWE-113" : titleLower.includes("cors") ? "CWE-942" : titleLower.includes("takeover") ? "CWE-284" : severity === "critical" ? "CWE-94" : severity === "high" ? "CWE-200" : "CWE-16");
+      const traceSteps = [
+        {
+          role: "source",
+          label: `Target Scope: ${targetValue}`,
+          filePath: hostOrPath,
+          line: 1
+        },
+        {
+          role: "sanitizer",
+          label: `Scanner Probe: ${item.title}`,
+          filePath: hostOrPath,
+          line: 1
+        },
+        {
+          role: "sink",
+          label: `Vulnerable Endpoint: ${hostOrPath}`,
+          filePath: hostOrPath,
+          line: 1
+        }
+      ];
+      findings.push({
+        id: findingId,
+        ruleId: `remote-${ruleSlug}`,
+        status: "confirmed",
+        severity,
+        title: item.title,
+        description: item.description || `Detected on ${hostOrPath}`,
+        cwe,
+        code: rawCode2 || item.template_id || "remote_vuln",
+        scope: "endpoint",
+        trace: {
+          steps: traceSteps,
+          sinkClass
+        },
+        createdAt
+      });
+    }
+  }
+  if (findings.length === 0 && result.summary?.technologies && result.summary.technologies.length > 0) {
+    findings.push({
+      id: `remote-${result.scan_job_id}-tech`,
+      ruleId: "remote-tech-discovery",
+      status: "confirmed",
+      severity: "low",
+      title: "Discovered Web Technologies",
+      description: `Target ${targetValue} is running: ${result.summary.technologies.join(", ")}`,
+      cwe: "CWE-200",
+      scope: "endpoint",
+      trace: {
+        steps: [
+          {
+            role: "source",
+            label: targetValue,
+            filePath: targetValue,
+            line: 1
+          },
+          {
+            role: "sink",
+            label: "Tech Fingerprint",
+            filePath: targetValue,
+            line: 1
+          }
+        ],
+        sinkClass: "ssrf"
+      },
+      createdAt
+    });
+  }
+  return findings;
+}
+function normalizeSastJobFindings(job, targetValue = "codebase") {
+  const createdAt = job.created_at || (/* @__PURE__ */ new Date()).toISOString();
+  return job.findings.map((f, i) => {
+    const findingId = `sast-${job.job_id}-${f.fingerprint.slice(0, 8)}-${i + 1}`;
+    const severity = mapSeverity(f.severity);
+    const sinkClass = detectSinkClass(f.title, f.description || "", f.vulnerability_id);
+    const cwe = extractCwe2(f.cwe_id ?? void 0) || "CWE-200";
+    const filePath = f.file_path || targetValue;
+    const line = f.line_start || 1;
+    const traceSteps = [
+      {
+        role: "source",
+        label: `File: ${filePath}`,
+        filePath,
+        line
+      },
+      {
+        role: "sink",
+        label: `${f.title} (${f.detected_by?.length ? f.detected_by.join(", ") : f.tool_name})`,
+        filePath,
+        line
+      }
+    ];
+    return {
+      id: findingId,
+      ruleId: f.vulnerability_id || `sast-${f.tool_name}`,
+      status: "confirmed",
+      severity,
+      title: f.title,
+      description: f.description || f.title,
+      cwe,
+      scope: "orchestrator",
+      remediation: f.remediation || void 0,
+      trace: {
+        steps: traceSteps,
+        sinkClass
+      },
+      createdAt
+    };
+  });
+}
+function normalizeDastJobFindings(job, targetUrl = "target") {
+  const createdAt = job.created_at || (/* @__PURE__ */ new Date()).toISOString();
+  const target = job.target_url || targetUrl;
+  return job.findings.map((f, i) => {
+    const findingId = `dast-${job.job_id}-${f.fingerprint.slice(0, 8)}-${i + 1}`;
+    const severity = mapSeverity(f.severity);
+    const sinkClass = detectSinkClass(f.title, f.rule_id || "", f.owasp_category || "");
+    const cwe = extractCwe2(f.cwe_id ?? void 0) || "CWE-200";
+    const url = f.target_url || target;
+    const traceSteps = [
+      {
+        role: "source",
+        label: `Target URL: ${url}`,
+        filePath: url,
+        line: 1
+      },
+      {
+        role: "sink",
+        label: `${f.title} [${f.tool_name}]${f.parameter ? ` (param: ${f.parameter})` : ""}`,
+        filePath: url,
+        line: 1
+      }
+    ];
+    return {
+      id: findingId,
+      ruleId: f.rule_id || f.vulnerability_id || `dast-${f.tool_name}`,
+      status: "confirmed",
+      severity,
+      title: f.title,
+      description: `${f.title} detected on ${url}${f.parameter ? ` (parameter: ${f.parameter})` : ""}`,
+      cwe,
+      scope: "orchestrator",
+      remediation: f.remediation || void 0,
+      trace: {
+        steps: traceSteps,
+        sinkClass
+      },
+      createdAt
+    };
+  });
+}
+var convertScanResultToFindings = normalizeRemoteFindings;
+
+// src/orchestrator/unified-security-client.ts
+var UnifiedSecurityClient = class {
+  auth;
+  _sast;
+  _dast;
+  _jwtToken;
+  sastBaseUrl;
+  dastBaseUrl;
+  timeoutMs;
+  fetchImpl;
+  constructor(options = {}) {
+    this.sastBaseUrl = options.sastBaseUrl || DEFAULT_SAST_SERVICE_URL;
+    this.dastBaseUrl = options.dastBaseUrl || DEFAULT_DAST_SERVICE_URL;
+    this.timeoutMs = options.timeoutMs ?? 6e4;
+    this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
+    this._jwtToken = options.jwtToken?.trim();
+    this.auth = new GatewayAuthClient({
+      baseUrl: options.authBaseUrl || DEFAULT_AUTH_SERVICE_URL,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl
+    });
+    this._sast = new SastClient({
+      baseUrl: this.sastBaseUrl,
+      jwtToken: this._jwtToken,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl
+    });
+    this._dast = new DastClient({
+      baseUrl: this.dastBaseUrl,
+      jwtToken: this._jwtToken,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl
+    });
+  }
+  get sast() {
+    return this._sast;
+  }
+  get dast() {
+    return this._dast;
+  }
+  get jwtToken() {
+    return this._jwtToken;
+  }
+  /**
+   * Updates the bearer JWT across both SAST and DAST clients simultaneously.
+   */
+  setSession(session) {
+    const token = typeof session === "string" ? session : session.accessToken;
+    this._jwtToken = token;
+    this._sast = new SastClient({
+      baseUrl: this.sastBaseUrl,
+      jwtToken: token,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl
+    });
+    this._dast = new DastClient({
+      baseUrl: this.dastBaseUrl,
+      jwtToken: token,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl
+    });
+  }
+  /**
+   * Authenticate with email/password and automatically configure SAST and DAST clients.
+   */
+  async login(email, password) {
+    const session = await this.auth.login(email, password);
+    this.setSession(session);
+    return session;
+  }
+  /**
+   * Run a full SAST scan lifecycle: submits zip, polls until complete, and normalizes findings.
+   */
+  async runSastScan(zipData, options = {}) {
+    const mode = options.mode ?? "passive";
+    const res = mode === "active" ? await this.sast.submitActiveScan(zipData) : await this.sast.submitPassiveScan(zipData);
+    const job = await this.sast.pollJobUntilComplete(res.job_id, options.pollOptions);
+    const findings = normalizeSastJobFindings(job, options.targetValue);
+    return { job, findings };
+  }
+  /**
+   * Run a full DAST scan lifecycle: validates target, submits scan, polls, and normalizes findings.
+   */
+  async runDastScan(targetUrl, options = {}) {
+    const validation = await this.dast.validateTarget(targetUrl);
+    const isSafe = validation.safe_to_scan ?? validation.valid ?? validation.ok ?? false;
+    if (!isSafe) {
+      throw new Error(`Target is not safe to scan: ${validation.message || validation.reason || validation.code || "Restricted address"}`);
+    }
+    const scanReq = {
+      target_url: targetUrl,
+      mode: options.mode ?? "passive",
+      tools: options.tools
+    };
+    const scan = await this.dast.submitScan(scanReq);
+    const job = await this.dast.pollJobUntilComplete(scan.job_id, options.pollOptions);
+    const findings = normalizeDastJobFindings(job, targetUrl);
+    return { validation, scan, job, findings };
+  }
+};
 
 // src/orchestrator/client.ts
 import {
   VercelError
 } from "@whoami/types";
+
+// src/sast/zip-builder.ts
+function getNodeModule(name) {
+  try {
+    const g = globalThis;
+    if (g.process?.versions?.node) {
+      if (typeof g.process.getBuiltinModule === "function") {
+        const mod = g.process.getBuiltinModule(name) || g.process.getBuiltinModule(name.replace(/^node:/, ""));
+        if (mod) return mod;
+      }
+      if (typeof g.require === "function") {
+        return g.require(name);
+      }
+    }
+  } catch {
+  }
+  return null;
+}
+function tryDeflate(data) {
+  try {
+    const mod = getNodeModule("node:zlib");
+    if (typeof mod?.deflateRawSync === "function") {
+      return mod.deflateRawSync(data);
+    }
+  } catch {
+  }
+  return null;
+}
+var DEFAULT_IGNORE_PATTERNS = [
+  ".git",
+  "node_modules",
+  ".venv",
+  "venv",
+  "env",
+  "__pycache__",
+  "dist",
+  "build",
+  "out",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".vscode",
+  ".idea",
+  ".DS_Store",
+  ".env"
+];
+var IGNORE_EXTENSIONS = /* @__PURE__ */ new Set([
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bz2",
+  ".xz",
+  ".7z",
+  ".rar",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".bin",
+  ".iso",
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".mp4",
+  ".mp3",
+  ".mov",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".eot",
+  ".pyc",
+  ".pyo"
+]);
+var CRC_TABLE = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let c = i;
+  for (let j = 0; j < 8; j++) {
+    c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+  }
+  CRC_TABLE[i] = c;
+}
+function calculateCrc32(data) {
+  let crc = 4294967295;
+  for (let i = 0; i < data.length; i++) {
+    const byte = data[i];
+    const tableVal = CRC_TABLE[(crc ^ byte) & 255];
+    crc = tableVal ^ crc >>> 8;
+  }
+  return (crc ^ 4294967295) >>> 0;
+}
+function buildZipArchive(entries) {
+  const localHeaders = [];
+  const centralHeaders = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const normalizedPath = entry.path.replace(/\\/g, "/").replace(/^\/+/, "");
+    const nameBytes = new TextEncoder().encode(normalizedPath);
+    const uncompressedData = entry.data;
+    const crc32 = calculateCrc32(uncompressedData);
+    let compressedData = uncompressedData;
+    let compressionMethod = 0;
+    if (uncompressedData.length > 32) {
+      const deflated = tryDeflate(uncompressedData);
+      if (deflated && deflated.length < uncompressedData.length) {
+        compressedData = deflated;
+        compressionMethod = 8;
+      }
+    }
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(localHeader.buffer);
+    lv.setUint32(0, 67324752, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0, true);
+    lv.setUint16(8, compressionMethod, true);
+    lv.setUint16(10, 0, true);
+    lv.setUint16(12, 0, true);
+    lv.setUint32(14, crc32, true);
+    lv.setUint32(18, compressedData.length, true);
+    lv.setUint32(22, uncompressedData.length, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    localHeader.set(nameBytes, 30);
+    localHeaders.push(localHeader, compressedData);
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(centralHeader.buffer);
+    cv.setUint32(0, 33639248, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true);
+    cv.setUint16(10, compressionMethod, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0, true);
+    cv.setUint32(16, crc32, true);
+    cv.setUint32(20, compressedData.length, true);
+    cv.setUint32(24, uncompressedData.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    centralHeader.set(nameBytes, 46);
+    centralHeaders.push(centralHeader);
+    offset += localHeader.length + compressedData.length;
+  }
+  const centralDirOffset = offset;
+  let centralDirSize = 0;
+  for (const ch of centralHeaders) centralDirSize += ch.length;
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 101010256, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, entries.length, true);
+  ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralDirSize, true);
+  ev.setUint32(16, centralDirOffset, true);
+  ev.setUint16(20, 0, true);
+  const totalLength = offset + centralDirSize + 22;
+  const result = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const piece of localHeaders) {
+    result.set(piece, pos);
+    pos += piece.length;
+  }
+  for (const piece of centralHeaders) {
+    result.set(piece, pos);
+    pos += piece.length;
+  }
+  result.set(eocd, pos);
+  return result;
+}
+function isFileIgnored(relPath, customIgnores = []) {
+  const normalized = relPath.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  for (const seg of segments) {
+    if (DEFAULT_IGNORE_PATTERNS.includes(seg)) return true;
+    if (customIgnores.includes(seg)) return true;
+  }
+  const dotIndex = normalized.lastIndexOf(".");
+  if (dotIndex !== -1) {
+    const ext = normalized.slice(dotIndex).toLowerCase();
+    if (IGNORE_EXTENSIONS.has(ext)) return true;
+  }
+  return false;
+}
+function packageWorkspaceDirectory(rootDir, options = {}) {
+  const fsMod = getNodeModule("node:fs");
+  const pathMod = getNodeModule("node:path");
+  if (!fsMod || !pathMod) {
+    throw new Error("packageWorkspaceDirectory is only supported in a Node.js runtime environment.");
+  }
+  const { existsSync, readFileSync, readdirSync, statSync } = fsMod;
+  const { join, relative } = pathMod;
+  const maxFiles = options.maxFiles ?? 2e3;
+  const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
+  const customIgnores = options.customIgnores ?? [];
+  const stats = {
+    totalFiles: 0,
+    includedFiles: 0,
+    excludedFiles: 0,
+    uncompressedBytes: 0,
+    compressedBytes: 0
+  };
+  const entries = [];
+  function walk(currentDir) {
+    if (!existsSync(currentDir)) return;
+    const items = readdirSync(currentDir);
+    for (const item of items) {
+      const fullPath = join(currentDir, item);
+      const relPath = relative(rootDir, fullPath).replace(/\\/g, "/");
+      if (isFileIgnored(relPath, customIgnores)) {
+        stats.excludedFiles++;
+        continue;
+      }
+      const st = statSync(fullPath);
+      if (st.isDirectory()) {
+        walk(fullPath);
+      } else if (st.isFile()) {
+        stats.totalFiles++;
+        if (stats.includedFiles >= maxFiles || stats.uncompressedBytes + st.size > maxBytes) {
+          stats.excludedFiles++;
+          continue;
+        }
+        try {
+          const content = readFileSync(fullPath);
+          entries.push({
+            path: relPath,
+            data: new Uint8Array(content.buffer, content.byteOffset, content.byteLength)
+          });
+          stats.includedFiles++;
+          stats.uncompressedBytes += st.size;
+        } catch {
+          stats.excludedFiles++;
+        }
+      }
+    }
+  }
+  walk(rootDir);
+  const zipData = buildZipArchive(entries);
+  stats.compressedBytes = zipData.length;
+  return { zipData, stats };
+}
 
 // src/orchestrator/hmac.ts
 function getNodeCrypto() {
@@ -3668,6 +4768,11 @@ var ScanOrchestratorClient = class {
   fetchFn;
   timeoutMs;
   logger;
+  useMicroservices;
+  sastClient;
+  dastClient;
+  targetMap = /* @__PURE__ */ new Map();
+  scanMetaMap = /* @__PURE__ */ new Map();
   constructor(config = {}) {
     const rawUrl = config.baseUrl || DEFAULT_ORCHESTRATOR_URL;
     this.baseUrl = cleanCredential(rawUrl)?.replace(/\/+$/, "") || DEFAULT_ORCHESTRATOR_URL;
@@ -3679,6 +4784,21 @@ var ScanOrchestratorClient = class {
     this.fetchFn = config.fetchFn || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : void 0);
     this.timeoutMs = config.timeoutMs || 6e4;
     this.logger = (config.logger || new Logger({ source: "orchestrator-client" })).child("orchestrator-client");
+    this.useMicroservices = config.useMicroservices ?? this.baseUrl === DEFAULT_ORCHESTRATOR_URL;
+    this.sastClient = new SastClient({
+      baseUrl: config.sastBaseUrl || DEFAULT_SAST_SERVICE_URL,
+      jwtToken: this.jwtToken,
+      apiKey: this.apiKey,
+      fetchImpl: this.fetchFn,
+      timeoutMs: this.timeoutMs
+    });
+    this.dastClient = new DastClient({
+      baseUrl: config.dastBaseUrl || DEFAULT_DAST_SERVICE_URL,
+      jwtToken: this.jwtToken,
+      apiKey: this.apiKey,
+      fetchImpl: this.fetchFn,
+      timeoutMs: this.timeoutMs
+    });
   }
   async request(path, options = {}) {
     if (!this.fetchFn) {
@@ -3706,16 +4826,18 @@ var ScanOrchestratorClient = class {
     }
     if (authType === "admin") {
       const key = this.adminApiKey || this.apiKey;
-      if (key && this.authMode === "api_key") {
+      if (key) {
         headers["X-API-Key"] = key;
         if (this.adminApiKey) {
           headers["X-Admin-API-Key"] = this.adminApiKey;
         }
-      } else if (this.jwtToken && this.jwtToken !== "offline-local-session") {
+      }
+      if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-      } else if (key) {
+      } else if (key && !headers["Authorization"]) {
         headers["Authorization"] = `Bearer ${key}`;
-      } else {
+      }
+      if (!headers["X-API-Key"] && !headers["Authorization"]) {
         throw new OrchestratorApiError(
           "An administrator account is required for this operation",
           401,
@@ -3730,16 +4852,18 @@ var ScanOrchestratorClient = class {
       }
     } else if (authType === "operator") {
       const key = this.apiKey || this.adminApiKey;
-      if (key && this.authMode === "api_key") {
+      if (key) {
         headers["X-API-Key"] = key;
         if (this.adminApiKey) {
           headers["X-Admin-API-Key"] = this.adminApiKey;
         }
-      } else if (this.jwtToken && this.jwtToken !== "offline-local-session") {
+      }
+      if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-      } else if (key) {
+      } else if (key && !headers["Authorization"]) {
         headers["Authorization"] = `Bearer ${key}`;
-      } else {
+      }
+      if (!headers["X-API-Key"] && !headers["Authorization"]) {
         throw new OrchestratorApiError(
           "Sign in to use cloud scans",
           401,
@@ -3974,6 +5098,16 @@ var ScanOrchestratorClient = class {
       target_type: isSourceCode ? "source_code" : target.target_type || "network",
       value: isSourceCode ? target.value.trim() : sanitizeTargetHostname(target.value)
     };
+    if (this.useMicroservices) {
+      const targetId = `target-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const targetRead = {
+        id: targetId,
+        value: targetPayload.value,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      this.targetMap.set(targetId, targetRead);
+      return targetRead;
+    }
     return this.request("/v1/targets", {
       method: "POST",
       body: targetPayload,
@@ -3984,6 +5118,9 @@ var ScanOrchestratorClient = class {
    * List Registered Targets with pagination (GET /v1/targets)
    */
   async listTargets(params) {
+    if (this.useMicroservices && this.targetMap.size > 0) {
+      return Array.from(this.targetMap.values());
+    }
     const qs = buildQueryString(params);
     return this.request(`/v1/targets${qs}`, {
       method: "GET",
@@ -3994,6 +5131,10 @@ var ScanOrchestratorClient = class {
    * Get Target Details by target ID (GET /v1/targets/{target_id})
    */
   async getTarget(targetId) {
+    if (this.useMicroservices) {
+      const local = this.targetMap.get(targetId);
+      if (local) return local;
+    }
     return this.request(`/v1/targets/${encodeURIComponent(targetId)}`, {
       method: "GET",
       auth: "operator"
@@ -4006,6 +5147,38 @@ var ScanOrchestratorClient = class {
    * Queue a new DAST scan job (POST /v1/scans)
    */
   async submitScan(scan, idempotencyKey) {
+    if (this.useMicroservices) {
+      const target = this.targetMap.get(scan.target_id);
+      const rawTarget = target?.value || scan.target_id;
+      const targetUrl = rawTarget.startsWith("http://") || rawTarget.startsWith("https://") ? rawTarget : `https://${rawTarget}`;
+      const validation = await this.dastClient.validateTarget(targetUrl);
+      const isSafe = validation.safe_to_scan ?? validation.valid ?? validation.ok ?? false;
+      if (!isSafe) {
+        throw new Error(
+          `Target ${targetUrl} is not safe to scan: ${validation.message || validation.reason || validation.code || "Restricted address"}`
+        );
+      }
+      const res = await this.dastClient.submitScan({
+        target_url: targetUrl,
+        mode: "passive",
+        tools: scan.profile ? [scan.profile] : void 0
+      });
+      this.scanMetaMap.set(res.job_id, {
+        targetId: scan.target_id,
+        profile: scan.profile,
+        targetValue: targetUrl,
+        kind: "dast"
+      });
+      return {
+        id: res.job_id,
+        target_id: scan.target_id,
+        profile: scan.profile,
+        status: "queued",
+        controller_job_id: res.job_id,
+        failure_reason: null,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
     return this.request("/v1/scans", {
       method: "POST",
       body: scan,
@@ -4027,6 +5200,20 @@ var ScanOrchestratorClient = class {
    * Retrieve the status of a DAST scan job (GET /v1/scans/{scan_id})
    */
   async getScan(scanId) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.dastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const status = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "cancelled" ? "cancelled" : "running";
+      return {
+        id: job.job_id,
+        target_id: meta?.targetId || "target-dast",
+        profile: meta?.profile || "dast-scan",
+        status,
+        controller_job_id: job.job_id,
+        failure_reason: job.error_message || null,
+        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
     return this.request(`/v1/scans/${encodeURIComponent(scanId)}`, {
       method: "GET",
       auth: "operator"
@@ -4060,6 +5247,39 @@ var ScanOrchestratorClient = class {
    * Get the parsed results, summary, and artifacts of a DAST scan (GET /v1/scans/{scan_id}/result)
    */
   async getScanResult(scanId) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.dastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const targetUrl = meta?.targetValue || job.target_url || "target";
+      const summary = {
+        total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+        risk_summary: {
+          critical: job.summary?.critical ?? 0,
+          high: job.summary?.high ?? 0,
+          medium: job.summary?.medium ?? 0,
+          low: job.summary?.low ?? 0,
+          info: job.summary?.info ?? 0,
+          total: job.summary?.total_findings ?? job.findings.length
+        },
+        findings: job.findings.map((f, i) => ({
+          title: f.title,
+          severity: f.severity,
+          description: f.remediation || f.title,
+          host: f.target_url || targetUrl,
+          template_id: f.rule_id || f.tool_name,
+          cwe: f.cwe_id || void 0
+        })),
+        technologies: job.summary?.technologies || []
+      };
+      return {
+        id: `result-${job.job_id}`,
+        scan_job_id: job.job_id,
+        summary,
+        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+        artifact: null,
+        error_logs: job.error_message || null
+      };
+    }
     return this.request(
       `/v1/scans/${encodeURIComponent(scanId)}/result`,
       {
@@ -4189,6 +5409,38 @@ var ScanOrchestratorClient = class {
    * Public endpoint (no authentication required).
    */
   async getSastProfiles() {
+    if (this.useMicroservices) {
+      try {
+        const cat = await this.sastClient.getTools();
+        return {
+          sast_profiles: cat.tools.map((t) => ({
+            profile: t.id,
+            engine: t.name,
+            languages: ["*"],
+            capabilities: t.modes ? [...t.modes] : ["sast"],
+            purpose: t.description || t.category || "SAST analysis"
+          }))
+        };
+      } catch {
+        const defaults = [
+          { name: "Semgrep", id: "semgrep", purpose: "Fast multi-language AST vulnerability scanning" },
+          { name: "Bearer", id: "bearer", purpose: "OWASP Top 10 and data privacy analysis" },
+          { name: "Bandit", id: "bandit", purpose: "Security linter for Python code" },
+          { name: "ESLint", id: "eslint", purpose: "JavaScript & TypeScript security rules" },
+          { name: "Gitleaks", id: "gitleaks", purpose: "Secret and credential detection in source code" },
+          { name: "TruffleHog", id: "trufflehog", purpose: "High-entropy secret and credential scanner" }
+        ];
+        return {
+          sast_profiles: defaults.map((d) => ({
+            profile: d.id,
+            engine: d.name,
+            languages: ["*"],
+            capabilities: ["sast"],
+            purpose: d.purpose
+          }))
+        };
+      }
+    }
     return this.request("/v1/sast/profiles", {
       method: "GET",
       auth: "none"
@@ -4198,6 +5450,50 @@ var ScanOrchestratorClient = class {
    * Queue a new SAST code analysis job (POST /v1/sast/scans)
    */
   async submitSastScan(scan, idempotencyKey) {
+    if (this.useMicroservices) {
+      const target = this.targetMap.get(scan.target_id);
+      const targetValue = target?.value || scan.target_id;
+      const isRepo = targetValue.startsWith("http://") || targetValue.startsWith("https://") || targetValue.startsWith("git@") || targetValue.endsWith(".git");
+      let jobId;
+      if (isRepo) {
+        const res = await this.sastClient.submitRepoScan({
+          repo_url: targetValue,
+          mode: "passive"
+        });
+        jobId = res.job_id;
+      } else {
+        let zipData;
+        try {
+          const packaged = packageWorkspaceDirectory(targetValue);
+          zipData = packaged.zipData;
+        } catch {
+          const dummyEntry = {
+            path: "README.md",
+            data: new TextEncoder().encode(`# Codebase Scope: ${targetValue}
+Scanned with Codefy SAST`)
+          };
+          zipData = buildZipArchive([dummyEntry]);
+        }
+        const res = await this.sastClient.submitPassiveScan(zipData);
+        jobId = res.job_id;
+      }
+      const profile = scan.profile || "sast-semgrep";
+      this.scanMetaMap.set(jobId, {
+        targetId: scan.target_id,
+        profile,
+        targetValue,
+        kind: "sast"
+      });
+      return {
+        id: jobId,
+        target_id: scan.target_id,
+        profile,
+        status: "queued",
+        controller_job_id: jobId,
+        failure_reason: null,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
     return this.request("/v1/sast/scans", {
       method: "POST",
       body: scan,
@@ -4219,6 +5515,20 @@ var ScanOrchestratorClient = class {
    * Retrieve the status of a SAST scan job (GET /v1/sast/scans/{scan_id})
    */
   async getSastScan(scanId) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.sastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const status = job.status === "completed" ? "completed" : job.status === "failed" || job.status === "expired" ? "failed" : "running";
+      return {
+        id: job.job_id,
+        target_id: meta?.targetId || "target-source",
+        profile: meta?.profile || "sast-scan",
+        status,
+        controller_job_id: job.job_id,
+        failure_reason: job.error_message || null,
+        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
     return this.request(
       `/v1/sast/scans/${encodeURIComponent(scanId)}`,
       {
@@ -4255,6 +5565,44 @@ var ScanOrchestratorClient = class {
    * Get the parsed results, summary, and findings of a SAST scan (GET /v1/sast/scans/{scan_id}/result)
    */
   async getSastScanResult(scanId) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.sastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const summary = {
+        total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+        risk_summary: {
+          critical: job.summary?.critical ?? 0,
+          high: job.summary?.high ?? 0,
+          medium: job.summary?.medium ?? 0,
+          low: job.summary?.low ?? 0,
+          info: 0,
+          total: job.summary?.total_findings ?? job.findings.length
+        },
+        findings: job.findings.map((f, i) => ({
+          id: f.id || `sast-${job.job_id}-${i + 1}`,
+          code: f.vulnerability_id || f.tool_name,
+          severity: f.severity,
+          title: f.title,
+          description: f.description || f.title,
+          evidence: {
+            file: f.file_path,
+            line: f.line_start,
+            detector: f.tool_name,
+            check_id: f.vulnerability_id,
+            cwe: f.cwe_id ? [f.cwe_id] : void 0
+          },
+          remediation: f.remediation || void 0
+        }))
+      };
+      return {
+        id: `result-${job.job_id}`,
+        scan_job_id: job.job_id,
+        summary,
+        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+        artifact: null,
+        error_logs: job.error_message || null
+      };
+    }
     return this.request(
       `/v1/sast/scans/${encodeURIComponent(scanId)}/result`,
       {
@@ -4505,7 +5853,10 @@ async function handleOrchestratorMessage(getClient, message, post) {
 
 // src/orchestrator/url-config.ts
 var ORCHESTRATOR_ORIGIN_ALLOWLIST = [
-  new URL(DEFAULT_ORCHESTRATOR_URL).origin
+  new URL(DEFAULT_ORCHESTRATOR_URL).origin,
+  new URL(DEFAULT_AUTH_SERVICE_URL).origin,
+  new URL(DEFAULT_SAST_SERVICE_URL).origin,
+  new URL(DEFAULT_DAST_SERVICE_URL).origin
 ];
 var LOOPBACK_HOSTNAMES = /* @__PURE__ */ new Set(["localhost", "127.0.0.1"]);
 function validateOrchestratorUrl(raw) {
@@ -4543,17 +5894,27 @@ function resolveOrchestratorUrl(sources) {
   return validateOrchestratorUrl(candidate);
 }
 export {
+  DEFAULT_ADMIN_API_KEY,
   DEFAULT_AI_GATEWAY_URL,
+  DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+  DEFAULT_OPERATOR_API_KEY,
   DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_SAST_SERVICE_URL,
+  DastClient,
+  FALLBACK_DAST_SERVICE_URL,
   GatewayAuthClient,
   HostedLlmClient,
   ORCHESTRATOR_ORIGIN_ALLOWLIST,
   OrchestratorApiError,
   SLASH_COMMANDS,
+  SastClient,
   ScanOrchestratorClient,
+  UnifiedSecurityClient,
   buildDynamicSuggestions,
   buildSuggestions,
   cleanCredential,
+  convertScanResultToFindings,
   executeQuery,
   executeRagRetrieval,
   executeSlashCommand,
@@ -4564,6 +5925,9 @@ export {
   generateUnifiedDiff,
   handleOrchestratorMessage,
   isOrchestratorRequest,
+  normalizeDastJobFindings,
+  normalizeRemoteFindings,
+  normalizeSastJobFindings,
   parseQuery,
   parseSlashCommand,
   pickGraphViewMode,

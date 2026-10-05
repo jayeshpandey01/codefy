@@ -17,6 +17,7 @@ export interface SastJobSummary {
 }
 
 export interface SastFinding {
+  readonly id?: string;
   readonly fingerprint: string;
   readonly tool_name: string;
   readonly vulnerability_id: string;
@@ -62,6 +63,65 @@ export interface SastJobDetailResponse {
   readonly autofix_patch?: string | null;
   readonly cached?: boolean;
 }
+
+export type SastToolName =
+  | "semgrep"
+  | "bearer"
+  | "bandit"
+  | "eslint"
+  | "njsscan"
+  | "pmd"
+  | "gosec"
+  | "brakeman"
+  | "flawfinder"
+  | "cppcheck"
+  | "gitleaks"
+  | "trufflehog"
+  | "detect-secrets"
+  | "trivy"
+  | "osv-scanner"
+  | "pip-audit"
+  | "checkov"
+  | "kics"
+  | "hadolint"
+  | "zizmor"
+  | "slither"
+  | "spectral"
+  | "shellcheck"
+  | "mobsfscan"
+  | "syft";
+
+export type DastToolName =
+  | "httpx"
+  | "dnsx"
+  | "tlsx"
+  | "katana"
+  | "subfinder"
+  | "shuffledns"
+  | "naabu"
+  | "cve-scan"
+  | "tech-detect"
+  | "header-audit"
+  | "cors-check"
+  | "wafw00f"
+  | "sitemap-parser"
+  | "robots-parser"
+  | "url-extractor"
+  | "nuclei"
+  | "dalfox"
+  | "crlfuzz"
+  | "sqlmap"
+  | "nikto"
+  | "commix"
+  | "ffuf"
+  | "arjun"
+  | "ssrf-detector"
+  | "xxe-injector"
+  | "jwt-tool"
+  | "graphql-cop"
+  | "api-fuzzer"
+  | "auth-matrix"
+  | "idor-tester";
 
 export interface SastToolInfo {
   readonly id: string;
@@ -206,11 +266,15 @@ export interface DastToolCatalogResponse {
 }
 
 export interface DastValidateTargetResponse {
-  readonly ok: boolean;
+  readonly valid?: boolean;
+  readonly ok?: boolean;
+  readonly safe_to_scan?: boolean;
   readonly target_url: string;
-  readonly safe_to_scan: boolean;
   readonly hostname?: string;
+  readonly resolved_ips?: readonly string[];
   readonly ip_address?: string;
+  readonly message?: string;
+  readonly code?: string;
   readonly reason?: string;
 }
 

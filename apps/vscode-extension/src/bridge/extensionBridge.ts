@@ -3,6 +3,9 @@ import {
   DEFAULT_ORCHESTRATOR_URL,
   DEFAULT_OPERATOR_API_KEY,
   DEFAULT_ADMIN_API_KEY,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+  DEFAULT_AUTH_SERVICE_URL,
   GatewayAuthClient,
   ScanOrchestratorClient,
   handleOrchestratorMessage,
@@ -182,12 +185,36 @@ export class ExtensionBridge {
         ? session.accessToken
         : undefined;
 
+    const sastBaseUrl =
+      clean(config.get<string>("sast.url")) ||
+      clean(process.env.SAST_SERVICE_URL) ||
+      clean(env.SAST_SERVICE_URL) ||
+      DEFAULT_SAST_SERVICE_URL;
+
+    const dastBaseUrl =
+      clean(config.get<string>("dast.url")) ||
+      clean(process.env.DAST_SERVICE_URL) ||
+      clean(env.DAST_SERVICE_URL) ||
+      DEFAULT_DAST_SERVICE_URL;
+
+    const authBaseUrl =
+      clean(config.get<string>("auth.url")) ||
+      clean(process.env.AUTH_SERVICE_URL) ||
+      clean(env.AUTH_SERVICE_URL) ||
+      clean(process.env.AI_GATEWAY_URL) ||
+      clean(env.AI_GATEWAY_URL) ||
+      DEFAULT_AUTH_SERVICE_URL;
+
     return new ScanOrchestratorClient({
       baseUrl,
+      sastBaseUrl,
+      dastBaseUrl,
+      authBaseUrl,
       apiKey,
       adminApiKey,
       authMode: "api_key",
       jwtToken,
+      useMicroservices: true,
     });
   }
 

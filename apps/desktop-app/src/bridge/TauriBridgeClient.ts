@@ -10,6 +10,11 @@ import {
 } from "@whoami/types";
 import {
   DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_OPERATOR_API_KEY,
+  DEFAULT_ADMIN_API_KEY,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+  DEFAULT_AUTH_SERVICE_URL,
   ScanOrchestratorClient,
   handleOrchestratorMessage,
 } from "@whoami/core/query";
@@ -172,11 +177,15 @@ export class TauriBridgeClient implements BridgeClient {
         : undefined;
 
     return new ScanOrchestratorClient({
-      baseUrl: "https://axiom-xjkc.onrender.com",
-      apiKey: "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
-      adminApiKey: "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU",
+      baseUrl: DEFAULT_ORCHESTRATOR_URL,
+      sastBaseUrl: DEFAULT_SAST_SERVICE_URL,
+      dastBaseUrl: DEFAULT_DAST_SERVICE_URL,
+      authBaseUrl: DEFAULT_AUTH_SERVICE_URL,
+      apiKey: DEFAULT_OPERATOR_API_KEY,
+      adminApiKey: DEFAULT_ADMIN_API_KEY,
       authMode: "api_key",
       jwtToken,
+      useMicroservices: true,
       fetchFn: tauriFetch as typeof fetch,
     });
   }

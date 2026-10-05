@@ -1,4 +1,5 @@
 import type { FetchLike } from "./logger.js";
+import type { SastToolName, DastToolName } from "./security-service.js";
 
 export type ScanProfile =
   | "recon"
@@ -18,7 +19,9 @@ export type ScanProfile =
   | "waf-detect"
   | "cors-audit"
   | "crlf-scan"
-  | "ssti-scan";
+  | "ssti-scan"
+  | DastToolName
+  | (string & {});
 
 export type SastProfile =
   | "sast-joern"
@@ -26,9 +29,11 @@ export type SastProfile =
   | "sast-trufflehog"
   | "sast-codeql"
   | "sast-gitleaks"
-  | "sast-bandit";
+  | "sast-bandit"
+  | SastToolName
+  | (string & {});
 
-export type AllScanProfile = ScanProfile | SastProfile;
+export type AllScanProfile = ScanProfile | SastProfile | string;
 
 /**
  * The 3-Tier Security Architecture:
@@ -279,6 +284,10 @@ export interface AuditEventRead {
 
 export interface OrchestratorClientConfig {
   baseUrl?: string;
+  sastBaseUrl?: string;
+  dastBaseUrl?: string;
+  authBaseUrl?: string;
+  useMicroservices?: boolean;
   apiKey?: string;
   adminApiKey?: string;
   authMode?: "api_key" | "bearer";

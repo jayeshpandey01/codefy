@@ -24,6 +24,7 @@ export class SecurityServiceApiError extends Error {
 export interface SastClientOptions {
   readonly baseUrl?: string;
   readonly jwtToken?: string;
+  readonly apiKey?: string;
   readonly timeoutMs?: number;
   readonly fetchImpl?: typeof fetch;
 }
@@ -40,24 +41,31 @@ const TERMINAL_STATUSES = new Set(["completed", "failed", "expired"]);
 export class SastClient {
   private readonly baseUrl: string;
   private readonly jwtToken?: string;
+  private readonly apiKey?: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: SastClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_SAST_SERVICE_URL).replace(/\/+$/, "");
     this.jwtToken = options.jwtToken?.trim();
+    this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
 
   private getAuthHeader(): Record<string, string> {
-    if (!this.jwtToken) {
+    const token = this.jwtToken || this.apiKey;
+    if (!token) {
       throw new SecurityServiceApiError(
-        "Authentication required: No JWT bearer token configured for SAST service.",
+        "Authentication required: No JWT bearer token or API key configured for SAST service.",
         401,
       );
     }
-    return { Authorization: `Bearer ${this.jwtToken}` };
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
+    return headers;
   }
 
   private async request<T>(

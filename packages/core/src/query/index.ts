@@ -40,7 +40,27 @@ export { generateFixDiffText, generateUnifiedDiff } from "../report/diff-suggest
 export type { FixDiffText } from "../report/diff-suggestion.js";
 export { executeRagRetrieval } from "../rag/index.js";
 export type { RagPipelineOptions, RagRetrievalResult } from "../rag/index.js";
-export { DEFAULT_ORCHESTRATOR_URL } from "../orchestrator/constants.js";
+export {
+  DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
+  FALLBACK_DAST_SERVICE_URL,
+  DEFAULT_OPERATOR_API_KEY,
+  DEFAULT_ADMIN_API_KEY,
+} from "../orchestrator/constants.js";
+export { UnifiedSecurityClient } from "../orchestrator/unified-security-client.js";
+export type { UnifiedSecurityClientOptions } from "../orchestrator/unified-security-client.js";
+export { SastClient } from "../sast/client.js";
+export type { SastClientOptions, PollJobOptions } from "../sast/client.js";
+export { DastClient } from "../dast/client.js";
+export type { DastClientOptions, PollDastJobOptions } from "../dast/client.js";
+export {
+  normalizeSastJobFindings,
+  normalizeDastJobFindings,
+  convertScanResultToFindings,
+  normalizeRemoteFindings,
+} from "../orchestrator/normalizer.js";
 // Browser-safe (plain fetch, no ast-grep/tree-sitter): lets the Tauri main
 // thread drive the orchestrator with the http plugin's fetch as fetchFn.
 export {

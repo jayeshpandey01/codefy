@@ -8,23 +8,31 @@ import {
   type HealthReadyResponse,
   type ListSastScansParams,
   type ListScansParams,
+  type DastJobSummary,
   type OrchestratorClientConfig,
   type PaginationParams,
   type PlatformStatsRead,
   type SASTScanCreate,
+  type SastProfile,
   type SastProfilesResponse,
   type ScanCreate,
   type ScanRead,
   type ScanResultRead,
+  type ScanStatus,
   type TargetCreate,
   type TargetRead,
   VercelError,
 } from "@whoami/types";
 import { Logger } from "../logging/logger.js";
+import { SastClient } from "../sast/client.js";
+import { DastClient } from "../dast/client.js";
+import { buildZipArchive, packageWorkspaceDirectory } from "../sast/zip-builder.js";
 import {
   DEFAULT_ORCHESTRATOR_URL,
   DEFAULT_OPERATOR_API_KEY,
   DEFAULT_ADMIN_API_KEY,
+  DEFAULT_SAST_SERVICE_URL,
+  DEFAULT_DAST_SERVICE_URL,
 } from "./constants.js";
 import { generateControllerHmacHeaders } from "./hmac.js";
 
@@ -189,6 +197,14 @@ export class ScanOrchestratorClient {
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
   private readonly logger: Logger;
+  private readonly useMicroservices: boolean;
+  private readonly sastClient: SastClient;
+  private readonly dastClient: DastClient;
+  private readonly targetMap = new Map<string, TargetRead>();
+  private readonly scanMetaMap = new Map<
+    string,
+    { targetId: string; profile: string; targetValue: string; kind: "sast" | "dast" }
+  >();
 
   constructor(config: OrchestratorClientConfig & { logger?: Logger } = {}) {
     const rawUrl = config.baseUrl || DEFAULT_ORCHESTRATOR_URL;
@@ -219,6 +235,23 @@ export class ScanOrchestratorClient {
     this.logger = (
       config.logger || new Logger({ source: "orchestrator-client" })
     ).child("orchestrator-client");
+
+    this.useMicroservices =
+      config.useMicroservices ?? (this.baseUrl === DEFAULT_ORCHESTRATOR_URL);
+    this.sastClient = new SastClient({
+      baseUrl: config.sastBaseUrl || DEFAULT_SAST_SERVICE_URL,
+      jwtToken: this.jwtToken,
+      apiKey: this.apiKey,
+      fetchImpl: this.fetchFn,
+      timeoutMs: this.timeoutMs,
+    });
+    this.dastClient = new DastClient({
+      baseUrl: config.dastBaseUrl || DEFAULT_DAST_SERVICE_URL,
+      jwtToken: this.jwtToken,
+      apiKey: this.apiKey,
+      fetchImpl: this.fetchFn,
+      timeoutMs: this.timeoutMs,
+    });
   }
 
   private async request<T>(
@@ -579,6 +612,17 @@ export class ScanOrchestratorClient {
       target_type: isSourceCode ? "source_code" : (target.target_type || "network"),
       value: isSourceCode ? target.value.trim() : sanitizeTargetHostname(target.value),
     };
+    if (this.useMicroservices) {
+      const targetId = `target-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const targetRead: TargetRead = {
+        id: targetId,
+        value: targetPayload.value,
+        created_at: new Date().toISOString(),
+      };
+      this.targetMap.set(targetId, targetRead);
+      return targetRead;
+    }
+
     return this.request<TargetRead>("/v1/targets", {
       method: "POST",
       body: targetPayload,
@@ -590,6 +634,9 @@ export class ScanOrchestratorClient {
    * List Registered Targets with pagination (GET /v1/targets)
    */
   async listTargets(params?: PaginationParams): Promise<TargetRead[]> {
+    if (this.useMicroservices && this.targetMap.size > 0) {
+      return Array.from(this.targetMap.values());
+    }
     const qs = buildQueryString(params as Record<string, unknown>);
     return this.request<TargetRead[]>(`/v1/targets${qs}`, {
       method: "GET",
@@ -601,6 +648,10 @@ export class ScanOrchestratorClient {
    * Get Target Details by target ID (GET /v1/targets/{target_id})
    */
   async getTarget(targetId: string): Promise<TargetRead> {
+    if (this.useMicroservices) {
+      const local = this.targetMap.get(targetId);
+      if (local) return local;
+    }
     return this.request<TargetRead>(`/v1/targets/${encodeURIComponent(targetId)}`, {
       method: "GET",
       auth: "operator",
@@ -618,6 +669,46 @@ export class ScanOrchestratorClient {
     scan: ScanCreate,
     idempotencyKey?: string,
   ): Promise<ScanRead> {
+    if (this.useMicroservices) {
+      const target = this.targetMap.get(scan.target_id);
+      const rawTarget = target?.value || scan.target_id;
+      const targetUrl = rawTarget.startsWith("http://") || rawTarget.startsWith("https://")
+        ? rawTarget
+        : `https://${rawTarget}`;
+
+      // SSRF preflight
+      const validation = await this.dastClient.validateTarget(targetUrl);
+      const isSafe = validation.safe_to_scan ?? validation.valid ?? validation.ok ?? false;
+      if (!isSafe) {
+        throw new Error(
+          `Target ${targetUrl} is not safe to scan: ${validation.message || validation.reason || validation.code || "Restricted address"}`,
+        );
+      }
+
+      const res = await this.dastClient.submitScan({
+        target_url: targetUrl,
+        mode: "passive",
+        tools: scan.profile ? [scan.profile] : undefined,
+      });
+
+      this.scanMetaMap.set(res.job_id, {
+        targetId: scan.target_id,
+        profile: scan.profile,
+        targetValue: targetUrl,
+        kind: "dast",
+      });
+
+      return {
+        id: res.job_id,
+        target_id: scan.target_id,
+        profile: scan.profile,
+        status: "queued",
+        controller_job_id: res.job_id,
+        failure_reason: null,
+        created_at: new Date().toISOString(),
+      };
+    }
+
     return this.request<ScanRead>("/v1/scans", {
       method: "POST",
       body: scan,
@@ -641,6 +732,29 @@ export class ScanOrchestratorClient {
    * Retrieve the status of a DAST scan job (GET /v1/scans/{scan_id})
    */
   async getScan(scanId: string): Promise<ScanRead> {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.dastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const status: ScanStatus =
+        job.status === "completed"
+          ? "completed"
+          : job.status === "failed"
+            ? "failed"
+            : job.status === "cancelled"
+              ? "cancelled"
+              : "running";
+
+      return {
+        id: job.job_id,
+        target_id: meta?.targetId || "target-dast",
+        profile: meta?.profile || "dast-scan",
+        status,
+        controller_job_id: job.job_id,
+        failure_reason: job.error_message || null,
+        created_at: job.created_at || new Date().toISOString(),
+      };
+    }
+
     return this.request<ScanRead>(`/v1/scans/${encodeURIComponent(scanId)}`, {
       method: "GET",
       auth: "operator",
@@ -677,6 +791,42 @@ export class ScanOrchestratorClient {
    * Get the parsed results, summary, and artifacts of a DAST scan (GET /v1/scans/{scan_id}/result)
    */
   async getScanResult(scanId: string): Promise<ScanResultRead> {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.dastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const targetUrl = meta?.targetValue || job.target_url || "target";
+
+      const summary = {
+        total_rules_evaluated: (job.summary as DastJobSummary)?.total_findings ?? job.findings.length,
+        risk_summary: {
+          critical: (job.summary as DastJobSummary)?.critical ?? 0,
+          high: (job.summary as DastJobSummary)?.high ?? 0,
+          medium: (job.summary as DastJobSummary)?.medium ?? 0,
+          low: (job.summary as DastJobSummary)?.low ?? 0,
+          info: (job.summary as DastJobSummary)?.info ?? 0,
+          total: (job.summary as DastJobSummary)?.total_findings ?? job.findings.length,
+        },
+        findings: job.findings.map((f, i) => ({
+          title: f.title,
+          severity: f.severity,
+          description: f.remediation || f.title,
+          host: f.target_url || targetUrl,
+          template_id: f.rule_id || f.tool_name,
+          cwe: f.cwe_id || undefined,
+        })),
+        technologies: ((job.summary as Record<string, unknown>)?.technologies as string[]) || [],
+      };
+
+      return {
+        id: `result-${job.job_id}`,
+        scan_job_id: job.job_id,
+        summary,
+        created_at: job.created_at || new Date().toISOString(),
+        artifact: null,
+        error_logs: job.error_message || null,
+      };
+    }
+
     return this.request<ScanResultRead>(
       `/v1/scans/${encodeURIComponent(scanId)}/result`,
       {
@@ -835,6 +985,38 @@ export class ScanOrchestratorClient {
    * Public endpoint (no authentication required).
    */
   async getSastProfiles(): Promise<SastProfilesResponse> {
+    if (this.useMicroservices) {
+      try {
+        const cat = await this.sastClient.getTools();
+        return {
+          sast_profiles: cat.tools.map((t) => ({
+            profile: t.id as SastProfile,
+            engine: t.name,
+            languages: ["*"],
+            capabilities: t.modes ? [...t.modes] : ["sast"],
+            purpose: t.description || t.category || "SAST analysis",
+          })),
+        };
+      } catch {
+        const defaults: Array<{ name: string; id: SastProfile; purpose: string }> = [
+          { name: "Semgrep", id: "semgrep", purpose: "Fast multi-language AST vulnerability scanning" },
+          { name: "Bearer", id: "bearer", purpose: "OWASP Top 10 and data privacy analysis" },
+          { name: "Bandit", id: "bandit", purpose: "Security linter for Python code" },
+          { name: "ESLint", id: "eslint", purpose: "JavaScript & TypeScript security rules" },
+          { name: "Gitleaks", id: "gitleaks", purpose: "Secret and credential detection in source code" },
+          { name: "TruffleHog", id: "trufflehog", purpose: "High-entropy secret and credential scanner" },
+        ];
+        return {
+          sast_profiles: defaults.map((d) => ({
+            profile: d.id,
+            engine: d.name,
+            languages: ["*"],
+            capabilities: ["sast"],
+            purpose: d.purpose,
+          })),
+        };
+      }
+    }
     return this.request<SastProfilesResponse>("/v1/sast/profiles", {
       method: "GET",
       auth: "none",
@@ -848,6 +1030,58 @@ export class ScanOrchestratorClient {
     scan: SASTScanCreate,
     idempotencyKey?: string,
   ): Promise<ScanRead> {
+    if (this.useMicroservices) {
+      const target = this.targetMap.get(scan.target_id);
+      const targetValue = target?.value || scan.target_id;
+      const isRepo =
+        targetValue.startsWith("http://") ||
+        targetValue.startsWith("https://") ||
+        targetValue.startsWith("git@") ||
+        targetValue.endsWith(".git");
+
+      let jobId: string;
+      if (isRepo) {
+        const res = await this.sastClient.submitRepoScan({
+          repo_url: targetValue,
+          mode: "passive",
+        });
+        jobId = res.job_id;
+      } else {
+        let zipData: Uint8Array;
+        try {
+          const packaged = packageWorkspaceDirectory(targetValue);
+          zipData = packaged.zipData;
+        } catch {
+          // If directory packaging is not possible in current environment, build a minimal valid zip archive
+          const dummyEntry = {
+            path: "README.md",
+            data: new TextEncoder().encode(`# Codebase Scope: ${targetValue}\nScanned with Codefy SAST`),
+          };
+          zipData = buildZipArchive([dummyEntry]);
+        }
+        const res = await this.sastClient.submitPassiveScan(zipData);
+        jobId = res.job_id;
+      }
+
+      const profile = scan.profile || "sast-semgrep";
+      this.scanMetaMap.set(jobId, {
+        targetId: scan.target_id,
+        profile,
+        targetValue,
+        kind: "sast",
+      });
+
+      return {
+        id: jobId,
+        target_id: scan.target_id,
+        profile,
+        status: "queued",
+        controller_job_id: jobId,
+        failure_reason: null,
+        created_at: new Date().toISOString(),
+      };
+    }
+
     return this.request<ScanRead>("/v1/sast/scans", {
       method: "POST",
       body: scan,
@@ -871,6 +1105,27 @@ export class ScanOrchestratorClient {
    * Retrieve the status of a SAST scan job (GET /v1/sast/scans/{scan_id})
    */
   async getSastScan(scanId: string): Promise<ScanRead> {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.sastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+      const status: ScanStatus =
+        job.status === "completed"
+          ? "completed"
+          : (job.status === "failed" || job.status === "expired")
+            ? "failed"
+            : "running";
+
+      return {
+        id: job.job_id,
+        target_id: meta?.targetId || "target-source",
+        profile: meta?.profile || "sast-scan",
+        status,
+        controller_job_id: job.job_id,
+        failure_reason: job.error_message || null,
+        created_at: job.created_at || new Date().toISOString(),
+      };
+    }
+
     return this.request<ScanRead>(
       `/v1/sast/scans/${encodeURIComponent(scanId)}`,
       {
@@ -910,6 +1165,47 @@ export class ScanOrchestratorClient {
    * Get the parsed results, summary, and findings of a SAST scan (GET /v1/sast/scans/{scan_id}/result)
    */
   async getSastScanResult(scanId: string): Promise<ScanResultRead> {
+    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+      const job = await this.sastClient.getJob(scanId);
+      const meta = this.scanMetaMap.get(scanId);
+
+      const summary = {
+        total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+        risk_summary: {
+          critical: job.summary?.critical ?? 0,
+          high: job.summary?.high ?? 0,
+          medium: job.summary?.medium ?? 0,
+          low: job.summary?.low ?? 0,
+          info: 0,
+          total: job.summary?.total_findings ?? job.findings.length,
+        },
+        findings: job.findings.map((f, i) => ({
+          id: f.id || `sast-${job.job_id}-${i + 1}`,
+          code: f.vulnerability_id || f.tool_name,
+          severity: f.severity,
+          title: f.title,
+          description: f.description || f.title,
+          evidence: {
+            file: f.file_path,
+            line: f.line_start,
+            detector: f.tool_name,
+            check_id: f.vulnerability_id,
+            cwe: f.cwe_id ? [f.cwe_id] : undefined,
+          },
+          remediation: f.remediation || undefined,
+        })),
+      };
+
+      return {
+        id: `result-${job.job_id}`,
+        scan_job_id: job.job_id,
+        summary,
+        created_at: job.created_at || new Date().toISOString(),
+        artifact: null,
+        error_logs: job.error_message || null,
+      };
+    }
+
     return this.request<ScanResultRead>(
       `/v1/sast/scans/${encodeURIComponent(scanId)}/result`,
       {

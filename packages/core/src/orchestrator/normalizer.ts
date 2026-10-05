@@ -560,3 +560,5 @@ export function normalizeDastJobFindings(
     };
   });
 }
+
+export const convertScanResultToFindings = normalizeRemoteFindings;

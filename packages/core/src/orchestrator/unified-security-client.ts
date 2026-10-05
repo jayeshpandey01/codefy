@@ -157,8 +157,9 @@ export class UnifiedSecurityClient {
     findings: Finding[];
   }> {
     const validation = await this.dast.validateTarget(targetUrl);
-    if (!validation.safe_to_scan) {
-      throw new Error(`Target is not safe to scan: ${validation.reason || "Restricted address"}`);
+    const isSafe = validation.safe_to_scan ?? validation.valid ?? validation.ok ?? false;
+    if (!isSafe) {
+      throw new Error(`Target is not safe to scan: ${validation.message || validation.reason || validation.code || "Restricted address"}`);
     }
 
     const scanReq: DastScanRequest = {
