@@ -15,7 +15,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "clean": "turbo run clean && rimraf node_modules",
-    "version:sync": "node scripts/sync-version.mjs"
+    "version:sync": "node scripts/sync-version.mjs",
+    "desktop:dev": "pnpm --filter @whoami/desktop-app tauri dev",
+    "desktop:build": "pnpm --filter @whoami/desktop-app tauri build"
   },
   "devDependencies": {
     "turbo": "^2.10.4",

@@ -342,7 +342,7 @@ export class ScanOrchestratorClient {
             code: "auth_missing",
             reason: "No valid signed-in user session is available.",
             hint: "Sign in again to refresh your cloud-scan authorization.",
-            fix: "Sign in to your WhoAmI account.",
+            fix: "Sign in to your Codefy account.",
           },
         );
       }

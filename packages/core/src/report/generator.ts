@@ -194,7 +194,7 @@ export function generateMarkdownReport(
     `- Started: ${new Date(session.startedAt).toISOString()}`,
     session.finishedAt ? `- Finished: ${new Date(session.finishedAt).toISOString()}` : undefined,
     `- Generated: ${generatedAt}`,
-    `- WhoAmI version: ${APP_VERSION}`,
+    `- Codefy version: ${APP_VERSION}`,
     "",
     renderSummarySection(summary),
     "",

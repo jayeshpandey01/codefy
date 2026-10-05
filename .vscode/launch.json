@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run WhoAmI Extension",
+      "name": "Run Codefy Extension",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
@@ -16,7 +16,7 @@
       "timeout": 30000
     },
     {
-      "name": "Run WhoAmI (No Debugger)",
+      "name": "Run Codefy (No Debugger)",
       "type": "extensionHost",
       "request": "launch",
       "noDebug": true,

@@ -86,7 +86,7 @@ describe("SettingsHistoryModal", () => {
     expect(screen.getByText("Account Profile & Security")).toBeDefined();
     expect(screen.getByText("Alice SecOps")).toBeDefined();
     expect(screen.getByText("alice@security.internal")).toBeDefined();
-    expect(screen.getByText("Signed in to your WhoAmI account.")).toBeDefined();
+    expect(screen.getByText("Signed in to your Codefy account.")).toBeDefined();
     expect(screen.getByRole("button", { name: /log out/i })).toBeDefined();
   });
 
@@ -191,7 +191,7 @@ describe("SettingsHistoryModal", () => {
     const aboutBtn = screen.getByRole("button", { name: /about/i });
     fireEvent.click(aboutBtn);
     expect(screen.getByRole("heading", { name: "About" })).toBeDefined();
-    expect(screen.getByText("WhoAmI Desktop Workbench")).toBeDefined();
+    expect(screen.getByText("Codefy Security Workbench")).toBeDefined();
     expect(screen.queryByRole("heading", { name: "About WhoAmI" })).toBeNull();
 
     const plansBtn = screen.getByRole("button", { name: /plans/i });

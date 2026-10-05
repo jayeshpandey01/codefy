@@ -11,7 +11,9 @@
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
     "clean": "rimraf dist *.tsbuildinfo",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@ast-grep/wasm": "catalog:",

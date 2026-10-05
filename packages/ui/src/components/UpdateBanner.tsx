@@ -140,13 +140,13 @@ function UpdateBannerIcon({ notice }: { readonly notice: UpdateNotice }): ReactE
 function UpdateBannerLabel({ notice }: { readonly notice: UpdateNotice }): string {
   switch (notice.kind) {
     case "available":
-      return `WhoAmI ${notice.version} is available`;
+      return `Codefy ${notice.version} is available`;
     case "progress":
       return notice.total
         ? `Downloading update... ${Math.round((notice.downloaded / notice.total) * 100)}%`
         : "Downloading update...";
     case "ready":
-      return `WhoAmI ${notice.version} is ready to install`;
+      return `Codefy ${notice.version} is ready to install`;
     case "updated":
       return `Updated to ${notice.to}`;
     case "error":

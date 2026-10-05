@@ -56,7 +56,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (updateNotice && updateNotice.kind === "updated") {
       WhoAmIPanel.setPendingUpdateNotice(updateNotice);
       void vscode.window
-        .showInformationMessage(`WhoAmI updated to ${updateNotice.to}`, "What's new")
+        .showInformationMessage(`Codefy updated to ${updateNotice.to}`, "What's new")
         .then((pick) => {
           if (pick === "What's new") {
             WhoAmIPanel.createOrShow(context, engineHost);

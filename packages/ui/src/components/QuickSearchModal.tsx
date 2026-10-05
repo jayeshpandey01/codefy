@@ -549,7 +549,7 @@ export function QuickSearchModal({
             </span>
           </div>
           <span className="text-[10px] text-vscode-muted">
-            {currentFolderPath ? `Workspace: ${getBasename(currentFolderPath)}` : "WhoAmI Universal Search"}
+            {currentFolderPath ? `Workspace: ${getBasename(currentFolderPath)}` : "Codefy Universal Search"}
           </span>
         </div>
       </div>

@@ -8,7 +8,7 @@
     "directory": "apps/vscode-extension"
   },
   "publisher": "Mickey20",
-  "displayName": "Codefy - WhoAmI",
+  "displayName": "Codefy",
   "description": "Real-time taint-flow finding detection, visual attack paths, and local runtime verification inside VS Code.",
   "icon": "icon.png",
   "license": "SEE LICENSE IN LICENSE",

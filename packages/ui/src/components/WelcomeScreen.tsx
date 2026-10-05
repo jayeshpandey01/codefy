@@ -204,7 +204,7 @@ export function WelcomeScreen({
       <div className="relative w-full max-w-sm rounded-xl border border-vscode-border bg-vscode-bg p-7 shadow-2xl">
         <div className="flex flex-col items-center gap-2 mb-6">
           <CodefyLogo size={34} className="text-vscode-focus" />
-          <div className="text-base font-bold tracking-wide text-white">WhoAmI</div>
+          <div className="text-base font-bold tracking-wide text-white">Codefy</div>
           <div className="text-xs text-vscode-muted text-center">
             {mode === "verify"
               ? "Verify your email to finish creating your account"

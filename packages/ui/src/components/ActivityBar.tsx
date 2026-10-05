@@ -29,7 +29,7 @@ export function ActivityBar({
         <button
           type="button"
           onClick={() => onSelectMode("workspace")}
-          title="WhoAmI Security Platform"
+          title="Codefy Security Platform"
           className="flex h-9 w-9 items-center justify-center rounded-md text-vscode-muted hover:text-vscode-fg hover:bg-vscode-card-hover active:bg-vscode-card-hover transition-all duration-150 cursor-pointer mb-0.5"
         >
           <LogoIcon size={19} />

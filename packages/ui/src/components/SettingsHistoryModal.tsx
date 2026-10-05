@@ -643,7 +643,7 @@ export function SettingsHistoryModal({
             <div className="flex items-center gap-2 px-2.5 py-2 mb-3">
               <CodefyLogo size={20} className="text-vscode-focus" />
               <span className="text-xs font-bold uppercase tracking-wider text-vscode-fg">
-                WhoAmI
+                Codefy
               </span>
             </div>
 
@@ -805,7 +805,7 @@ export function SettingsHistoryModal({
               <div>
                 <h2 className="text-lg font-bold text-vscode-fg tracking-wide">Account Profile & Security</h2>
                 <p className="text-xs text-vscode-muted mt-0.5">
-                  Signed in to your WhoAmI account.
+                  Signed in to your Codefy account.
                 </p>
               </div>
 
@@ -1258,7 +1258,7 @@ export function SettingsHistoryModal({
                     <div className="text-xs text-vscode-muted py-2">Loading API keys…</div>
                   ) : apiKeys.length === 0 ? (
                     <div className="text-xs text-vscode-dim py-2">
-                      No developer API keys active. Generate one above to use WhoAmI via CLI or CI/CD.
+                      No developer API keys active. Generate one above to use Codefy via CLI or CI/CD.
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1.5 mt-1">
@@ -1731,9 +1731,9 @@ export function SettingsHistoryModal({
                 <div className="flex items-center gap-3">
                   <CodefyLogo size={36} className="text-vscode-focus" />
                   <div>
-                    <div className="text-sm font-bold text-vscode-fg">WhoAmI Desktop Workbench</div>
+                    <div className="text-sm font-bold text-vscode-fg">Codefy Security Workbench</div>
                     <div className="text-xs font-mono text-vscode-muted">
-                      Version 0.1.0 (Build 2026.1)
+                      Version 0.3.0 (Build 2026.1)
                     </div>
                   </div>
                 </div>
@@ -1759,7 +1759,7 @@ export function SettingsHistoryModal({
               </div>
 
               <div className="text-xs text-vscode-muted leading-relaxed">
-                WhoAmI is designed with developer trust as its primary principle: zero alert fatigue, deterministic taint flow tracking, and zero unverified findings.
+                Codefy is designed with developer trust as its primary principle: zero alert fatigue, deterministic taint flow tracking, and zero unverified findings.
               </div>
             </div>
           )}

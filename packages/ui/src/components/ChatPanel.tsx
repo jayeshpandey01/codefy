@@ -531,7 +531,7 @@ export function ChatPanel({
             className="flex items-center justify-center w-5 h-5 rounded-full bg-vscode-primary/20 text-severity-medium border border-vscode-primary/50"
             data-testid="whoami-chat-logo"
           >
-            <WhoAmILogo size={13} className="text-[#388BFD]" title="WhoAmI" />
+            <WhoAmILogo size={13} className="text-[#388BFD]" title="Codefy" />
           </div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-vscode-fg">
             Chat
