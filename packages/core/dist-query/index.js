@@ -3531,16 +3531,17 @@ var SastClient = class {
   fetchImpl;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_SAST_SERVICE_URL).replace(/\/+$/, "");
-    this.jwtToken = options.jwtToken?.trim();
+    const rawJwt = options.jwtToken?.trim();
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : void 0;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 6e4;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
   getAuthHeader() {
     const token = this.jwtToken || this.apiKey;
-    if (!token) {
+    if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
-        "Authentication required: No JWT bearer token or API key configured for SAST service.",
+        "Authentication required: Please sign in to your Codefy account or configure an API key to access SAST services.",
         401
       );
     }
@@ -3574,6 +3575,13 @@ var SastClient = class {
             detail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
           }
         } catch {
+        }
+        if (res.status === 401) {
+          throw new SecurityServiceApiError(
+            detail || "Session has expired or token is invalid. Please sign in again.",
+            401,
+            detail
+          );
         }
         throw new SecurityServiceApiError(detail, res.status, detail);
       }
@@ -3716,16 +3724,17 @@ var DastClient = class {
   fetchImpl;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
-    this.jwtToken = options.jwtToken?.trim();
+    const rawJwt = options.jwtToken?.trim();
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : void 0;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 6e4;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
   getAuthHeader() {
     const token = this.jwtToken || this.apiKey;
-    if (!token) {
+    if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
-        "Authentication required: No JWT bearer token or API key configured for DAST service.",
+        "Authentication required: Please sign in to your Codefy account or configure an API key to access DAST services.",
         401
       );
     }
@@ -3766,6 +3775,13 @@ var DastClient = class {
             detail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
           }
         } catch {
+        }
+        if (res.status === 401) {
+          throw new SecurityServiceApiError(
+            detail || "Session has expired or token is invalid. Please sign in again.",
+            401,
+            detail
+          );
         }
         throw new SecurityServiceApiError(detail, res.status, detail);
       }
@@ -4746,7 +4762,8 @@ var ScanOrchestratorClient = class {
     this.apiKey = cleanCredential(config.apiKey);
     this.adminApiKey = cleanCredential(config.adminApiKey);
     this.authMode = config.authMode || "api_key";
-    this.jwtToken = cleanCredential(config.jwtToken || config.bearerToken);
+    const rawJwt = cleanCredential(config.jwtToken || config.bearerToken);
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : void 0;
     this.controllerSecret = cleanCredential(config.controllerSecret);
     this.fetchFn = config.fetchFn || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : void 0);
     this.timeoutMs = config.timeoutMs || 6e4;
@@ -4962,11 +4979,12 @@ var ScanOrchestratorClient = class {
       );
       let meta = {};
       if (response.status === 401 || response.status === 403) {
+        const isSessionExpired = /session.*expire|token.*invalid|invalid.*token|expired.*token|token.*revoked/i.test(errorMessage);
         meta = {
-          code: "auth_failed",
-          reason: "The signed-in account was not authorized for this operation.",
-          hint: "Sign in with an account that has access to this target and operation.",
-          fix: "Check the account's Axiom role and target authorization."
+          code: isSessionExpired ? "session_expired" : "auth_failed",
+          reason: isSessionExpired ? "Your authentication session has expired or the token is invalid." : "The signed-in account was not authorized for this operation.",
+          hint: isSessionExpired ? "Please sign in again to your Codefy account or switch to Continue Offline." : "Sign in with an account that has access to this target and operation.",
+          fix: isSessionExpired ? "Sign in with your email and password." : "Check the account's role and target authorization."
         };
       } else if (response.status === 404) {
         meta = {

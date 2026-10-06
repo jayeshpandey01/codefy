@@ -19,7 +19,7 @@ import {
   handleOrchestratorMessage,
 } from "@whoami/core/query";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { getAuthSession } from "../db/authRepo.js";
+import { clearAuthSession, getAuthSession } from "../db/authRepo.js";
 import { getSettings } from "../db/preferencesRepo.js";
 import { pickAndReadWorkspace, pickWorkspaceFolder, readWorkspaceFromPath, type PickedWorkspace } from "./workspaceFs.js";
 import { scanFilesInWorker } from "./engineWorker.js";
@@ -171,8 +171,14 @@ export class TauriBridgeClient implements BridgeClient {
    */
   private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
     const session = await getAuthSession();
+    const isExpired = session?.expiresAt ? session.expiresAt <= Date.now() : false;
+    if (isExpired && session) {
+      await clearAuthSession();
+    }
     const jwtToken =
-      session?.accessToken && session.accessToken !== "offline-local-session"
+      !isExpired &&
+      session?.accessToken &&
+      session.accessToken !== "offline-local-session"
         ? session.accessToken
         : undefined;
 
@@ -191,7 +197,15 @@ export class TauriBridgeClient implements BridgeClient {
   }
 
   private emitError(requestId: string | undefined, err: unknown, fallbackScope: string): void {
-    this.emit({ type: "error", requestId, ...toStructuredError(err, fallbackScope) });
+    const structured = toStructuredError(err, fallbackScope);
+    if (
+      structured.statusCode === 401 ||
+      structured.code === "session_expired" ||
+      /session.*expire|token.*invalid|invalid.*token/i.test(structured.message)
+    ) {
+      void clearAuthSession();
+    }
+    this.emit({ type: "error", requestId, ...structured });
   }
 
   private async handle(message: BridgeMessage): Promise<void> {

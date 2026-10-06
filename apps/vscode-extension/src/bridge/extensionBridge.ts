@@ -247,7 +247,14 @@ export class ExtensionBridge {
         typeof value === "object" && value !== null &&
         typeof (value as AuthSession).accessToken === "string" &&
         typeof (value as AuthSession).expiresAt === "number"
-      ) return value as AuthSession;
+      ) {
+        const session = value as AuthSession;
+        if (session.expiresAt <= Date.now()) {
+          await this.context.secrets.delete(AUTH_SESSION_SECRET_KEY);
+          return null;
+        }
+        return session;
+      }
     } catch {
       // Remove corrupt secure state and require a fresh sign-in.
     }
@@ -660,6 +667,13 @@ export class ExtensionBridge {
       }
     } catch (error) {
       const structured = toStructuredError(error, "orchestrator");
+      if (
+        structured.statusCode === 401 ||
+        structured.code === "session_expired" ||
+        /session.*expire|token.*invalid|invalid.*token/i.test(structured.message)
+      ) {
+        void this.context.secrets.delete(AUTH_SESSION_SECRET_KEY);
+      }
       this.post({
         type: "error",
         message: structured.message,

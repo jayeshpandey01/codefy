@@ -72,6 +72,7 @@ import "@whoami/ui/styles.css";
 import {
   HostedLlmClient,
   DEFAULT_AI_GATEWAY_URL,
+  DEFAULT_OPERATOR_API_KEY,
   runChatQuery,
   parseSlashCommand,
   executeSlashCommand,
@@ -170,7 +171,7 @@ function App(): ReactElement {
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
   const [isChatStreaming, setIsChatStreaming] = useState<boolean>(false);
   const hostedLlmClient = useMemo(
-    () => new HostedLlmClient({ baseUrl: DEFAULT_AI_GATEWAY_URL }),
+    () => new HostedLlmClient({ baseUrl: DEFAULT_AI_GATEWAY_URL, apiKey: DEFAULT_OPERATOR_API_KEY }),
     [],
   );
   const [selectedFinding, setSelectedFinding] = useState<Finding | undefined>(undefined);
@@ -251,7 +252,12 @@ function App(): ReactElement {
     async function loadAuth() {
       try {
         const session = await getAuthSession();
-        if (mounted && session && session.expiresAt > Date.now()) {
+        if (!session) return;
+        if (session.expiresAt <= Date.now()) {
+          await clearAuthSession();
+          return;
+        }
+        if (mounted) {
           setAuthSession(session);
         }
       } catch (err) {
@@ -377,6 +383,14 @@ function App(): ReactElement {
     });
 
     const offError = bridge.on("error", (message) => {
+      const isAuthError =
+        message.statusCode === 401 ||
+        message.code === "session_expired" ||
+        /session.*expire|token.*invalid|invalid.*token/i.test(message.message);
+      if (isAuthError) {
+        void clearAuthSession();
+        setAuthSession(null);
+      }
       setErrorPayload(message);
       setStatus("error");
       setProgress(null);
@@ -1155,7 +1169,16 @@ function App(): ReactElement {
           openTab("graph");
         }
       } catch (err) {
-        setErrorPayload(toStructuredError(err, "orchestrator"));
+        const payload = toStructuredError(err, "orchestrator");
+        if (
+          payload.statusCode === 401 ||
+          payload.code === "session_expired" ||
+          /session.*expire|token.*invalid|invalid.*token/i.test(payload.message)
+        ) {
+          void clearAuthSession();
+          setAuthSession(null);
+        }
+        setErrorPayload(payload);
       } finally {
         setIsOrchestratorScanning(false);
         setTimeout(() => setOrchestratorProgress(null), 4000);

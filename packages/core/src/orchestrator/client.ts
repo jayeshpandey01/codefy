@@ -215,7 +215,8 @@ export class ScanOrchestratorClient {
     this.adminApiKey = cleanCredential(config.adminApiKey);
 
     this.authMode = config.authMode || "api_key";
-    this.jwtToken = cleanCredential(config.jwtToken || config.bearerToken);
+    const rawJwt = cleanCredential(config.jwtToken || config.bearerToken);
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : undefined;
 
     this.controllerSecret = cleanCredential(config.controllerSecret);
 
@@ -487,11 +488,19 @@ export class ScanOrchestratorClient {
 
       let meta: OrchestratorErrorMeta = {};
       if (response.status === 401 || response.status === 403) {
+        const isSessionExpired =
+          /session.*expire|token.*invalid|invalid.*token|expired.*token|token.*revoked/i.test(errorMessage);
         meta = {
-          code: "auth_failed",
-          reason: "The signed-in account was not authorized for this operation.",
-          hint: "Sign in with an account that has access to this target and operation.",
-          fix: "Check the account's Axiom role and target authorization.",
+          code: isSessionExpired ? "session_expired" : "auth_failed",
+          reason: isSessionExpired
+            ? "Your authentication session has expired or the token is invalid."
+            : "The signed-in account was not authorized for this operation.",
+          hint: isSessionExpired
+            ? "Please sign in again to your Codefy account or switch to Continue Offline."
+            : "Sign in with an account that has access to this target and operation.",
+          fix: isSessionExpired
+            ? "Sign in with your email and password."
+            : "Check the account's role and target authorization.",
         };
       } else if (response.status === 404) {
         meta = {

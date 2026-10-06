@@ -13,7 +13,10 @@ const authSession = {
 };
 
 vi.mock("@tauri-apps/plugin-http", () => ({ fetch: (...args: unknown[]) => tauriFetch(...args) }));
-vi.mock("../db/authRepo.js", () => ({ getAuthSession: async () => authSession }));
+vi.mock("../db/authRepo.js", () => ({
+  getAuthSession: async () => authSession,
+  clearAuthSession: vi.fn(async () => {}),
+}));
 vi.mock("../bridge/updater.js", () => ({
   checkForAppUpdate: vi.fn(async () => undefined),
   checkForVersionChange: vi.fn(async () => null),
@@ -95,5 +98,24 @@ describe("TauriBridgeClient orchestrator requests", () => {
       bridge.request({ type: "list-scans-request", requestId: "r-401" } as BridgeMessage),
     ).rejects.toThrow();
     expect(errors[0]).toMatchObject({ type: "error", requestId: "r-401", statusCode: 401 });
+  });
+
+  it("identifies expired sessions and marks them with session_expired error code", async () => {
+    tauriFetch.mockResolvedValue(
+      jsonResponse({ detail: "Session has expired or token is invalid." }, 401),
+    );
+    const bridge = new TauriBridgeClient();
+    const errors: BridgeMessage[] = [];
+    bridge.on("error", (m) => errors.push(m));
+
+    await expect(
+      bridge.request({ type: "list-scans-request", requestId: "r-expired" } as BridgeMessage),
+    ).rejects.toThrow();
+    expect(errors[0]).toMatchObject({
+      type: "error",
+      requestId: "r-expired",
+      statusCode: 401,
+      code: "session_expired",
+    });
   });
 });

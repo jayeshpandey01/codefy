@@ -34,7 +34,8 @@ export class DastClient {
 
   constructor(options: DastClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
-    this.jwtToken = options.jwtToken?.trim();
+    const rawJwt = options.jwtToken?.trim();
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : undefined;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
@@ -42,9 +43,9 @@ export class DastClient {
 
   private getAuthHeader(): Record<string, string> {
     const token = this.jwtToken || this.apiKey;
-    if (!token) {
+    if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
-        "Authentication required: No JWT bearer token or API key configured for DAST service.",
+        "Authentication required: Please sign in to your Codefy account or configure an API key to access DAST services.",
         401,
       );
     }
@@ -98,6 +99,13 @@ export class DastClient {
           }
         } catch {
           // Non-JSON response
+        }
+        if (res.status === 401) {
+          throw new SecurityServiceApiError(
+            detail || "Session has expired or token is invalid. Please sign in again.",
+            401,
+            detail,
+          );
         }
         throw new SecurityServiceApiError(detail, res.status, detail);
       }

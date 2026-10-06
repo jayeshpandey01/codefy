@@ -65,6 +65,7 @@ import {
   runChatQuery,
   DEFAULT_ORCHESTRATOR_URL,
   DEFAULT_AI_GATEWAY_URL,
+  DEFAULT_OPERATOR_API_KEY,
   parseSlashCommand,
   executeSlashCommand,
   executeUnknownSlashCommand,
@@ -176,7 +177,7 @@ export function App(): ReactElement {
     [],
   );
   const hostedLlmClient = useMemo(
-    () => new HostedLlmClient({ baseUrl: aiGatewayBaseUrl }),
+    () => new HostedLlmClient({ baseUrl: aiGatewayBaseUrl, apiKey: DEFAULT_OPERATOR_API_KEY }),
     [aiGatewayBaseUrl],
   );
   const gatewayAuthClient = useMemo(
@@ -257,8 +258,27 @@ export function App(): ReactElement {
     async function loadAuth() {
       try {
         const session = await getAuthSession();
-        if (mounted && session && session.expiresAt > Date.now()) {
-          setAuthSession(session);
+        if (!session) return;
+        if (session.expiresAt <= Date.now()) {
+          await clearAuthSession();
+          return;
+        }
+        if (session.accessToken === "offline-local-session") {
+          if (mounted) setAuthSession(session);
+          return;
+        }
+        // Validate online session with backend (race with 5s timeout to not block offline usage)
+        const isStillValid = await Promise.race([
+          gatewayAuthClient.isSessionValid(session.accessToken),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 5000)),
+        ]);
+        if (isStillValid) {
+          if (mounted) setAuthSession(session);
+        } else {
+          await clearAuthSession();
+          if (mounted) {
+            setErrorMessage("Your previous session has expired. Please log in again.");
+          }
         }
       } catch (err) {
         console.warn("[WhoAmI App] Failed to restore auth session:", err);
@@ -270,7 +290,7 @@ export function App(): ReactElement {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [gatewayAuthClient]);
 
   // Initialize DB state on mount
   useEffect(() => {
@@ -384,6 +404,14 @@ export function App(): ReactElement {
     });
 
     const offError = bridge.on("error", (message) => {
+      const isAuthError =
+        message.statusCode === 401 ||
+        message.code === "session_expired" ||
+        /session.*expire|token.*invalid|invalid.*token/i.test(message.message);
+      if (isAuthError) {
+        void clearAuthSession();
+        setAuthSession(null);
+      }
       setErrorMessage(message.message);
       setStatus("error");
       setProgress(null);
@@ -752,7 +780,16 @@ export function App(): ReactElement {
           });
         }
       } catch (err) {
-        setErrorMessage(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        const isAuthError =
+          /session.*expire|token.*invalid|invalid.*token|expired.*token|401|unauthorized/i.test(msg);
+        if (isAuthError) {
+          await clearAuthSession();
+          setAuthSession(null);
+          setErrorMessage("Your session has expired or is invalid. Please sign in again or continue offline.");
+        } else {
+          setErrorMessage(msg);
+        }
       } finally {
         setIsOrchestratorScanning(false);
         setTimeout(() => setOrchestratorProgress(null), 3000);

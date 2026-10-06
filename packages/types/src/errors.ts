@@ -13,19 +13,38 @@ export interface StructuredErrorPayload {
   link?: string;
 }
 
+function isSessionExpiredText(text: string): boolean {
+  return /session.*expire|token.*invalid|invalid.*token|expired.*token|token.*revoked/i.test(text);
+}
+
 export function toStructuredError(
   error: unknown,
   fallbackScope?: string,
 ): StructuredErrorPayload {
   if (error instanceof VercelError) {
+    const isExpired =
+      error.statusCode === 401 ||
+      error.code === "session_expired" ||
+      isSessionExpiredText(error.message);
+
     return {
       message: error.message,
-      code: error.code,
+      code: error.code || (isExpired ? "session_expired" : undefined),
       scope: error.scope || fallbackScope,
-      statusCode: error.statusCode,
-      reason: error.reason,
-      hint: error.hint,
-      fix: error.fix,
+      statusCode: error.statusCode ?? (isExpired ? 401 : undefined),
+      reason:
+        error.reason ||
+        (isExpired
+          ? "The current authentication session has expired or is invalid."
+          : undefined),
+      hint:
+        error.hint ||
+        (isExpired
+          ? "Please sign in again to your Codefy account or continue offline."
+          : undefined),
+      fix:
+        error.fix ||
+        (isExpired ? "Sign in with your email and password." : undefined),
       link: error.link,
     };
   }
@@ -50,20 +69,46 @@ export function toStructuredError(
     const link =
       typeof errObj["link"] === "string" ? errObj["link"] : undefined;
 
+    const isExpired =
+      statusCode === 401 ||
+      code === "session_expired" ||
+      isSessionExpiredText(message);
+
     return {
       message,
-      code,
+      code: code || (isExpired ? "session_expired" : undefined),
       scope,
-      statusCode,
-      reason,
-      hint,
-      fix,
+      statusCode: statusCode ?? (isExpired ? 401 : undefined),
+      reason:
+        reason ||
+        (isExpired
+          ? "The current authentication session has expired or is invalid."
+          : undefined),
+      hint:
+        hint ||
+        (isExpired
+          ? "Please sign in again to your Codefy account or continue offline."
+          : undefined),
+      fix:
+        fix ||
+        (isExpired ? "Sign in with your email and password." : undefined),
       link,
     };
   }
 
+  const rawMsg = typeof error === "string" ? error : String(error);
+  const isExpired = isSessionExpiredText(rawMsg);
   return {
-    message: typeof error === "string" ? error : String(error),
+    message: rawMsg,
     scope: fallbackScope,
+    code: isExpired ? "session_expired" : undefined,
+    statusCode: isExpired ? 401 : undefined,
+    reason: isExpired
+      ? "The current authentication session has expired or is invalid."
+      : undefined,
+    hint: isExpired
+      ? "Please sign in again to your Codefy account or continue offline."
+      : undefined,
+    fix: isExpired ? "Sign in with your email and password." : undefined,
   };
 }
