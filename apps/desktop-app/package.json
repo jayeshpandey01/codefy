@@ -11,9 +11,9 @@
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
     "clean": "rimraf dist *.tsbuildinfo",
-    "tauri": "node node_modules/@tauri-apps/cli/tauri.js",
-    "tauri:dev": "node node_modules/@tauri-apps/cli/tauri.js dev",
-    "tauri:build": "node node_modules/@tauri-apps/cli/tauri.js build"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@ast-grep/wasm": "catalog:",
