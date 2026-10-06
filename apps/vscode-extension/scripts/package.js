@@ -134,4 +134,7 @@ for (const file of files) {
   console.log(`[package] copied ${file} -> repo root & apps/vscode-extension/`);
 }
 
+console.log(`[package] restoring monorepo workspace dependencies...`);
+run("pnpm", ["install"], { cwd: repoRoot });
+
 console.log(`[package] done -- .vsix written under ${vsixOutDir}`);
