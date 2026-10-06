@@ -4,7 +4,7 @@ import { executeRagRetrieval, verifyLlmResponse } from "../../rag/index.js";
 import { FIXTURE_FINDINGS } from "../query/fixtures.js";
 import type { WorkspaceGraph, OkfBundle } from "@whoami/types";
 
-const LIVE_RENDER_URL = "https://axiom-xjkc.onrender.com";
+const LIVE_RENDER_URL = "https://cmd-d-llm.vercel.app";
 const RUN_LIVE_TESTS = process.env.RUN_LIVE_TESTS === "1";
 
 const mockGraph: WorkspaceGraph = {

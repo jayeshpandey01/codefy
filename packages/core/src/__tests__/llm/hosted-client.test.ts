@@ -22,7 +22,7 @@ describe("HostedLlmClient with TrainIQ RAG & SSE Streaming", () => {
     });
 
     const client = new HostedLlmClient({
-      baseUrl: "https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com",
+      baseUrl: "https://cmd-d-llm.vercel.app",
       fetchImpl: mockFetch as unknown as typeof fetch,
     });
 
@@ -51,7 +51,7 @@ describe("HostedLlmClient with TrainIQ RAG & SSE Streaming", () => {
 
     // Verify /api/chat request body strictly matches the required schema
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com/api/chat",
+      "https://cmd-d-llm.vercel.app/api/chat",
       expect.objectContaining({
         method: "POST",
         body: expect.any(String),

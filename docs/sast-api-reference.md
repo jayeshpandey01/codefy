@@ -2,8 +2,8 @@
 
 Complete request and response documentation for the **Static Application Security Testing (SAST)** and **Secret Detection** endpoints of the Authorized Scan Orchestrator API.
 
-- **Production API Base**: `https://axiom-xjkc.onrender.com`
-- **Swagger / OpenAPI UI**: [`https://axiom-xjkc.onrender.com/docs`](https://axiom-xjkc.onrender.com/docs)
+- **Production API Base**: `https://sast-dutn.onrender.com`
+- **Swagger / OpenAPI UI**: [`https://sast-dutn.onrender.com/docs`](https://sast-dutn.onrender.com/docs)
 - **Tag**: `SAST Scans (Joern CPG, Semgrep & TruffleHog)`
 
 ---
@@ -28,7 +28,7 @@ Retrieve supported SAST engines, language capabilities, and static analysis bund
 
 ```http
 GET /v1/sast/profiles HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Accept: application/json
 ```
@@ -117,7 +117,7 @@ Submit an authorized source repository target for SAST analysis.
 
 ```http
 POST /v1/sast/scans HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 
@@ -131,7 +131,7 @@ Content-Type: application/json
 
 ```http
 POST /v1/sast/scans HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 
@@ -145,7 +145,7 @@ Content-Type: application/json
 
 ```http
 POST /v1/sast/scans HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 
@@ -179,7 +179,7 @@ Check the real-time execution status of an active or completed SAST job.
 
 ```http
 GET /v1/sast/scans/70184604-f02e-4b3c-ac6a-26a2f435d298 HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Accept: application/json
 ```
@@ -208,7 +208,7 @@ Cancel an in-progress or queued static analysis job and release scanner resource
 
 ```http
 POST /v1/sast/scans/70184604-f02e-4b3c-ac6a-26a2f435d298/cancel HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Content-Type: application/json
 ```
@@ -237,7 +237,7 @@ Retrieve normalized vulnerability findings, line numbers, code snippets, and rem
 
 ```http
 GET /v1/sast/scans/70184604-f02e-4b3c-ac6a-26a2f435d298/result HTTP/1.1
-Host: axiom-xjkc.onrender.com
+Host: sast-dutn.onrender.com
 Authorization: Bearer <OIDC_ACCESS_TOKEN>
 Accept: application/json
 ```

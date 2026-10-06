@@ -40,12 +40,12 @@ function getEnvConfig(key: string): string | undefined {
 }
 
 const LIVE_BASE_URL =
-  getEnvConfig("ORCHESTRATOR_URL") || "https://axiom-xjkc.onrender.com";
+  getEnvConfig("SAST_SERVICE_URL") || getEnvConfig("ORCHESTRATOR_URL") || "https://sast-dutn.onrender.com";
 const API_KEY = getEnvConfig("API_KEY");
 const ADMIN_API_KEY = getEnvConfig("ADMIN_API_KEY");
 const RUN_LIVE_TESTS = process.env.RUN_LIVE_TESTS === "1";
 
-describe.skipIf(!RUN_LIVE_TESTS)("Live API Integration with axiom-xjkc.onrender.com", () => {
+describe.skipIf(!RUN_LIVE_TESTS)("Live API Integration with sast-dutn.onrender.com", () => {
   const client = new ScanOrchestratorClient({
     baseUrl: LIVE_BASE_URL,
     apiKey: API_KEY,

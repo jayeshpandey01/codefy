@@ -28,7 +28,6 @@ __export(index_exports, {
   DEFAULT_ORCHESTRATOR_URL: () => DEFAULT_ORCHESTRATOR_URL,
   DEFAULT_SAST_SERVICE_URL: () => DEFAULT_SAST_SERVICE_URL,
   DastClient: () => DastClient,
-  FALLBACK_DAST_SERVICE_URL: () => FALLBACK_DAST_SERVICE_URL,
   GatewayAuthClient: () => GatewayAuthClient,
   HostedLlmClient: () => HostedLlmClient,
   ORCHESTRATOR_ORIGIN_ALLOWLIST: () => ORCHESTRATOR_ORIGIN_ALLOWLIST,
@@ -2625,11 +2624,10 @@ ${prompt}` : prompt);
 };
 
 // src/orchestrator/constants.ts
-var DEFAULT_ORCHESTRATOR_URL = "https://axiom-xjkc.onrender.com";
 var DEFAULT_AUTH_SERVICE_URL = "https://cmd-d-llm.vercel.app";
 var DEFAULT_SAST_SERVICE_URL = "https://sast-dutn.onrender.com";
 var DEFAULT_DAST_SERVICE_URL = "https://dast-dutn.onrender.com";
-var FALLBACK_DAST_SERVICE_URL = "https://dast-js9w.onrender.com";
+var DEFAULT_ORCHESTRATOR_URL = DEFAULT_SAST_SERVICE_URL;
 var DEFAULT_OPERATOR_API_KEY = "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
 var DEFAULT_ADMIN_API_KEY = "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
 
@@ -3767,14 +3765,12 @@ var SastClient = class {
 var TERMINAL_STATUSES2 = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
 var DastClient = class {
   baseUrl;
-  fallbackBaseUrl;
   jwtToken;
   apiKey;
   timeoutMs;
   fetchImpl;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
-    this.fallbackBaseUrl = FALLBACK_DAST_SERVICE_URL.replace(/\/+$/, "");
     this.jwtToken = options.jwtToken?.trim();
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 6e4;
@@ -3815,19 +3811,8 @@ var DastClient = class {
     }
   }
   async request(path, init = {}, requireAuth = true) {
-    let targetBaseUrl = this.baseUrl;
     try {
-      let res = await this.executeFetch(`${targetBaseUrl}${path}`, init, requireAuth);
-      if ((res.status === 404 || res.status === 502 || res.status === 503) && this.fallbackBaseUrl && targetBaseUrl !== this.fallbackBaseUrl) {
-        try {
-          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
-          if (fallbackRes.ok) {
-            this.baseUrl = this.fallbackBaseUrl;
-            return await fallbackRes.json();
-          }
-        } catch {
-        }
-      }
+      const res = await this.executeFetch(`${this.baseUrl}${path}`, init, requireAuth);
       if (!res.ok) {
         let detail = `Request failed with status ${res.status}`;
         try {
@@ -3842,27 +3827,7 @@ var DastClient = class {
       return await res.json();
     } catch (err) {
       if (err instanceof SecurityServiceApiError) {
-        if ((err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503) && this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
-          try {
-            const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
-            if (fallbackRes.ok) {
-              this.baseUrl = this.fallbackBaseUrl;
-              return await fallbackRes.json();
-            }
-          } catch {
-          }
-        }
         throw err;
-      }
-      if (this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
-        try {
-          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
-          if (fallbackRes.ok) {
-            this.baseUrl = this.fallbackBaseUrl;
-            return await fallbackRes.json();
-          }
-        } catch {
-        }
       }
       throw new SecurityServiceApiError(
         err instanceof Error ? err.message : "Network error contacting DAST service",
@@ -5912,12 +5877,13 @@ async function handleOrchestratorMessage(getClient, message, post) {
 }
 
 // src/orchestrator/url-config.ts
-var ORCHESTRATOR_ORIGIN_ALLOWLIST = [
-  new URL(DEFAULT_ORCHESTRATOR_URL).origin,
-  new URL(DEFAULT_AUTH_SERVICE_URL).origin,
-  new URL(DEFAULT_SAST_SERVICE_URL).origin,
-  new URL(DEFAULT_DAST_SERVICE_URL).origin
-];
+var ORCHESTRATOR_ORIGIN_ALLOWLIST = Array.from(
+  /* @__PURE__ */ new Set([
+    new URL(DEFAULT_AUTH_SERVICE_URL).origin,
+    new URL(DEFAULT_SAST_SERVICE_URL).origin,
+    new URL(DEFAULT_DAST_SERVICE_URL).origin
+  ])
+);
 var LOOPBACK_HOSTNAMES = /* @__PURE__ */ new Set(["localhost", "127.0.0.1"]);
 function validateOrchestratorUrl(raw) {
   let parsed;

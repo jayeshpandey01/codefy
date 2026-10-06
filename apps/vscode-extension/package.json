@@ -118,9 +118,24 @@
     "configuration": {
       "title": "Codefy Security Orchestrator",
       "properties": {
+        "codefy.sast.url": {
+          "type": "string",
+          "default": "https://sast-dutn.onrender.com",
+          "description": "Base URL of the Codefy SAST microservice."
+        },
+        "codefy.dast.url": {
+          "type": "string",
+          "default": "https://dast-dutn.onrender.com",
+          "description": "Base URL of the Codefy DAST microservice."
+        },
+        "codefy.auth.url": {
+          "type": "string",
+          "default": "https://cmd-d-llm.vercel.app",
+          "description": "Base URL of the Central Auth and AI Gateway service."
+        },
         "codefy.orchestrator.url": {
           "type": "string",
-          "default": "https://axiom-xjkc.onrender.com",
+          "default": "https://sast-dutn.onrender.com",
           "description": "Base URL of the Authorized Scan Orchestrator service."
         },
         "codefy.orchestrator.apiKey": {
@@ -135,7 +150,7 @@
         },
         "whoami.orchestrator.url": {
           "type": "string",
-          "default": "https://axiom-xjkc.onrender.com",
+          "default": "https://sast-dutn.onrender.com",
           "description": "Legacy fallback: Base URL of the Authorized Scan Orchestrator service."
         },
         "whoami.orchestrator.apiKey": {

@@ -53,8 +53,9 @@ There are **two** backend URLs:
 
 | Backend | Default | Used for |
 |---|---|---|
-| Orchestrator ("Axiom") | `https://axiom-xjkc.onrender.com` (`packages/core/src/orchestrator/constants.ts`) | targets, SAST/DAST scans, audit, stats |
-| AI gateway | `https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com` (`packages/core/src/llm/hosted-client.ts`) | sign-in, API keys, chat |
+| Central Auth & AI Gateway | `https://cmd-d-llm.vercel.app` (`packages/core/src/orchestrator/constants.ts`) | sign-in, JWT auth, API keys, AI chat |
+| SAST Microservice | `https://sast-dutn.onrender.com` (`packages/core/src/orchestrator/constants.ts`) | source-code scans, 25 SAST tools |
+| DAST Microservice | `https://dast-dutn.onrender.com` (`packages/core/src/orchestrator/constants.ts`) | dynamic scans, SSRF guardrails |
 
 **How each app picks the URL today:**
 

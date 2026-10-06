@@ -26,11 +26,11 @@ describe("validateOrchestratorUrl", () => {
 
   it.each([
     ["https host not on the allowlist", "https://evil.example.com"],
-    ["plain http off loopback", "http://axiom-xjkc.onrender.com"],
+    ["plain http off loopback", `http://${new URL(DEFAULT_ORCHESTRATOR_URL).host}`],
     ["non-http scheme", "ftp://localhost"],
-    ["embedded credentials", "https://user:pw@axiom-xjkc.onrender.com"],
+    ["embedded credentials", `https://user:pw@${new URL(DEFAULT_ORCHESTRATOR_URL).host}`],
     ["garbage", "not a url"],
-    ["lookalike subdomain", "https://axiom-xjkc.onrender.com.evil.io"],
+    ["lookalike subdomain", `https://${new URL(DEFAULT_ORCHESTRATOR_URL).host}.evil.io`],
   ])("rejects %s", (_label, raw) => {
     expect(validateOrchestratorUrl(raw).ok).toBe(false);
   });

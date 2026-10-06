@@ -10,12 +10,13 @@ import {
  * Keep in sync with the `http:default` allow list in
  * apps/desktop-app/src-tauri/capabilities/default.json.
  */
-export const ORCHESTRATOR_ORIGIN_ALLOWLIST: readonly string[] = [
-  new URL(DEFAULT_ORCHESTRATOR_URL).origin,
-  new URL(DEFAULT_AUTH_SERVICE_URL).origin,
-  new URL(DEFAULT_SAST_SERVICE_URL).origin,
-  new URL(DEFAULT_DAST_SERVICE_URL).origin,
-];
+export const ORCHESTRATOR_ORIGIN_ALLOWLIST: readonly string[] = Array.from(
+  new Set([
+    new URL(DEFAULT_AUTH_SERVICE_URL).origin,
+    new URL(DEFAULT_SAST_SERVICE_URL).origin,
+    new URL(DEFAULT_DAST_SERVICE_URL).origin,
+  ]),
+);
 
 /** Local backend development: plain http is allowed only on loopback, any port. */
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1"]);

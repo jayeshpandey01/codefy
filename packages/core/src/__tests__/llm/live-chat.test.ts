@@ -5,7 +5,7 @@ import { FIXTURE_FINDINGS } from "../query/fixtures.js";
 const LIVE_AI_URL = process.env.AI_API_URL || DEFAULT_AI_GATEWAY_URL;
 const RUN_LIVE_TESTS = process.env.RUN_LIVE_TESTS === "1";
 
-describe.skipIf(!RUN_LIVE_TESTS)("Live AI Gateway Integration (https://i8791yv32r8c7t21387rcfvt8713cv.onrender.com)", () => {
+describe.skipIf(!RUN_LIVE_TESTS)("Live AI Gateway Integration (https://cmd-d-llm.vercel.app)", () => {
   const client = new HostedLlmClient({
     baseUrl: LIVE_AI_URL,
     timeoutMs: 90000, // Render cold-start allowance

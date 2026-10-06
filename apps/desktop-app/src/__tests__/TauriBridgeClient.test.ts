@@ -49,17 +49,17 @@ describe("TauriBridgeClient orchestrator requests", () => {
     expect(res.type).toBe("list-scans-result");
     expect(tauriFetch).toHaveBeenCalledOnce();
     const [url, init] = tauriFetch.mock.calls[0]!;
-    expect(String(url)).toMatch(/^https:\/\/axiom-xjkc\.onrender\.com\//);
+    expect(String(url)).toMatch(/^https:\/\/sast-dutn\.onrender\.com\//);
     expect((init as RequestInit).headers).toMatchObject({
       "X-API-Key": "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU",
     });
   });
 
-  it("handles target registration directly through backend credentials", async () => {
-    tauriFetch.mockResolvedValue(jsonResponse({ id: "t-1" }));
+  it("handles target registration directly and sends admin requests with admin credentials", async () => {
+    tauriFetch.mockResolvedValue(jsonResponse([{ id: "audit-1" }]));
     const bridge = new TauriBridgeClient();
 
-    await bridge.request({
+    const regRes = await bridge.request<BridgeMessage, BridgeMessage>({
       type: "register-target-request",
       target: {
         value: "example.com",
@@ -69,7 +69,18 @@ describe("TauriBridgeClient orchestrator requests", () => {
       },
     } as unknown as BridgeMessage);
 
-    expect((tauriFetch.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
+    expect(regRes.type).toBe("register-target-result");
+    expect((regRes as any).target?.value).toBe("example.com");
+
+    const auditRes = await bridge.request<BridgeMessage, BridgeMessage>({
+      type: "list-audit-events-request",
+    } as BridgeMessage);
+
+    expect(auditRes.type).toBe("list-audit-events-result");
+    expect(tauriFetch).toHaveBeenCalledOnce();
+    const [url, init] = tauriFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/^https:\/\/sast-dutn\.onrender\.com\//);
+    expect((init as RequestInit).headers).toMatchObject({
       "X-API-Key": "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU",
     });
   });

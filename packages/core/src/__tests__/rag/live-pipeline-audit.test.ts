@@ -11,7 +11,7 @@ import { HostedLlmClient } from "../../llm/hosted-client.js";
 import { FIXTURE_FINDINGS } from "../query/fixtures.js";
 import type { WorkspaceGraph, OkfBundle } from "@whoami/types";
 
-const LIVE_RENDER_URL = "https://axiom-xjkc.onrender.com";
+const LIVE_RENDER_URL = "https://cmd-d-llm.vercel.app";
 const RUN_LIVE_TESTS = process.env.RUN_LIVE_TESTS === "1";
 
 const mockGraph: WorkspaceGraph = {
@@ -188,9 +188,9 @@ describe("RAG Pipeline: Section-by-Section & Breaking Point Audit", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // SECTION 5: Live SSE Streaming against axiom-xjkc.onrender.com
+  // SECTION 5: Live SSE Streaming against cmd-d-llm.vercel.app
   // ---------------------------------------------------------------------------
-  describe.skipIf(!RUN_LIVE_TESTS)("Section 5: Live Deployed Backend Streaming (axiom-xjkc.onrender.com)", () => {
+  describe.skipIf(!RUN_LIVE_TESTS)("Section 5: Live Deployed Backend Streaming (cmd-d-llm.vercel.app)", () => {
     it("streams real-time deltas and receives terminal citations from live Render server", async () => {
       const client = new HostedLlmClient({
         baseUrl: LIVE_RENDER_URL,

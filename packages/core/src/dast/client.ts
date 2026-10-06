@@ -5,7 +5,7 @@ import type {
   DastToolCatalogResponse,
   DastValidateTargetResponse,
 } from "@whoami/types";
-import { DEFAULT_DAST_SERVICE_URL, FALLBACK_DAST_SERVICE_URL } from "../orchestrator/constants.js";
+import { DEFAULT_DAST_SERVICE_URL } from "../orchestrator/constants.js";
 import { SecurityServiceApiError } from "../sast/client.js";
 
 export interface DastClientOptions {
@@ -26,8 +26,7 @@ export interface PollDastJobOptions {
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export class DastClient {
-  private baseUrl: string;
-  private readonly fallbackBaseUrl?: string;
+  private readonly baseUrl: string;
   private readonly jwtToken?: string;
   private readonly apiKey?: string;
   private readonly timeoutMs: number;
@@ -35,7 +34,6 @@ export class DastClient {
 
   constructor(options: DastClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
-    this.fallbackBaseUrl = FALLBACK_DAST_SERVICE_URL.replace(/\/+$/, "");
     this.jwtToken = options.jwtToken?.trim();
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 60_000;
@@ -88,22 +86,8 @@ export class DastClient {
     init: RequestInit = {},
     requireAuth = true,
   ): Promise<T> {
-    let targetBaseUrl = this.baseUrl;
     try {
-      let res = await this.executeFetch(`${targetBaseUrl}${path}`, init, requireAuth);
-
-      // If primary returns 404 (or 502/503), attempt fallback if available
-      if ((res.status === 404 || res.status === 502 || res.status === 503) && this.fallbackBaseUrl && targetBaseUrl !== this.fallbackBaseUrl) {
-        try {
-          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
-          if (fallbackRes.ok) {
-            this.baseUrl = this.fallbackBaseUrl;
-            return (await fallbackRes.json()) as T;
-          }
-        } catch {
-          // Fall back to original response error handling
-        }
-      }
+      const res = await this.executeFetch(`${this.baseUrl}${path}`, init, requireAuth);
 
       if (!res.ok) {
         let detail = `Request failed with status ${res.status}`;
@@ -121,32 +105,7 @@ export class DastClient {
       return (await res.json()) as T;
     } catch (err: unknown) {
       if (err instanceof SecurityServiceApiError) {
-        // If 404 on primary and not yet tried fallback
-        if ((err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503) && this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
-          try {
-            const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
-            if (fallbackRes.ok) {
-              this.baseUrl = this.fallbackBaseUrl;
-              return (await fallbackRes.json()) as T;
-            }
-          } catch {
-            // Re-throw original
-          }
-        }
         throw err;
-      }
-
-      // Network error on primary -> try fallback
-      if (this.fallbackBaseUrl && this.baseUrl !== this.fallbackBaseUrl) {
-        try {
-          const fallbackRes = await this.executeFetch(`${this.fallbackBaseUrl}${path}`, init, requireAuth);
-          if (fallbackRes.ok) {
-            this.baseUrl = this.fallbackBaseUrl;
-            return (await fallbackRes.json()) as T;
-          }
-        } catch {
-          // Fall through to error below
-        }
       }
 
       throw new SecurityServiceApiError(
