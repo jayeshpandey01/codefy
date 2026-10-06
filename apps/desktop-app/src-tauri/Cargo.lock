@@ -4807,7 +4807,7 @@ dependencies = [
 
 [[package]]
 name = "whoami-desktop-app"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",

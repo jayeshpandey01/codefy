@@ -4,8 +4,8 @@
   "version": "../package.json",
   "identifier": "com.whoami.desktop",
   "build": {
-    "beforeDevCommand": "vite",
-    "beforeBuildCommand": "tsc -b && vite build",
+    "beforeDevCommand": "npx vite",
+    "beforeBuildCommand": "npx tsc -b && npx vite build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },

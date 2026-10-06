@@ -110,7 +110,27 @@ export class ExtensionBridge {
   // by design, see getWebviewHtml.ts), the extension host can make direct
   // HTTPS calls to the AI Gateway's /developer/auth/* endpoints. The
   // webview only ever sends auth-*-request messages over the bridge.
-  private readonly gatewayAuthClient = new GatewayAuthClient();
+  private getGatewayAuthClient(): GatewayAuthClient {
+    const env = loadEnvFile();
+    const config = vscode.workspace.getConfiguration("codefy");
+    const legacyConfig = vscode.workspace.getConfiguration("whoami");
+    const clean = (val?: string | null): string | undefined => {
+      if (!val) return undefined;
+      const t = val.trim().replace(/^["']|["']$/g, "").trim();
+      if (!t || t === "undefined" || t === "null") return undefined;
+      return t;
+    };
+    const baseUrl =
+      clean(config.get<string>("auth.url")) ||
+      clean(legacyConfig.get<string>("auth.url")) ||
+      clean(process.env.AUTH_SERVICE_URL) ||
+      clean(env.AUTH_SERVICE_URL) ||
+      clean(process.env.AI_GATEWAY_URL) ||
+      clean(env.AI_GATEWAY_URL) ||
+      DEFAULT_AUTH_SERVICE_URL;
+
+    return new GatewayAuthClient({ baseUrl });
+  }
 
   constructor(
     private readonly panel: vscode.WebviewPanel | vscode.WebviewView,
@@ -494,7 +514,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-login-request": {
-          const session = await this.gatewayAuthClient.login(
+          const session = await this.getGatewayAuthClient().login(
             message.email,
             message.password,
           );
@@ -502,7 +522,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-register-request": {
-          const result = await this.gatewayAuthClient.register({
+          const result = await this.getGatewayAuthClient().register({
             name: message.name,
             email: message.email,
             password: message.password,
@@ -517,7 +537,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-verify-email-request": {
-          const session = await this.gatewayAuthClient.verifyEmail(
+          const session = await this.getGatewayAuthClient().verifyEmail(
             message.email,
             message.code,
           );
@@ -525,12 +545,12 @@ export class ExtensionBridge {
           return;
         }
         case "auth-resend-code-request": {
-          await this.gatewayAuthClient.resendCode(message.email);
+          await this.getGatewayAuthClient().resendCode(message.email);
           this.post({ type: "auth-resend-code-result", requestId: message.requestId });
           return;
         }
         case "auth-forgot-password-request": {
-          await this.gatewayAuthClient.forgotPassword(message.email);
+          await this.getGatewayAuthClient().forgotPassword(message.email);
           this.post({
             type: "auth-forgot-password-result",
             ok: true,
@@ -539,7 +559,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-verify-reset-otp-request": {
-          await this.gatewayAuthClient.verifyResetOtp(message.email, message.code);
+          await this.getGatewayAuthClient().verifyResetOtp(message.email, message.code);
           this.post({
             type: "auth-verify-reset-otp-result",
             ok: true,
@@ -548,7 +568,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-reset-password-request": {
-          await this.gatewayAuthClient.resetPassword(
+          await this.getGatewayAuthClient().resetPassword(
             message.email,
             message.code,
             message.newPassword,
@@ -561,7 +581,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-list-api-keys-request": {
-          const keys = await this.gatewayAuthClient.listApiKeys(message.token);
+          const keys = await this.getGatewayAuthClient().listApiKeys(message.token);
           this.post({
             type: "auth-list-api-keys-result",
             keys,
@@ -570,7 +590,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-create-api-key-request": {
-          const key = await this.gatewayAuthClient.createApiKey(
+          const key = await this.getGatewayAuthClient().createApiKey(
             message.token,
             message.name,
             message.expiresDays,
@@ -583,7 +603,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-revoke-api-key-request": {
-          await this.gatewayAuthClient.revokeApiKey(message.token, message.keyId);
+          await this.getGatewayAuthClient().revokeApiKey(message.token, message.keyId);
           this.post({
             type: "auth-revoke-api-key-result",
             ok: true,
@@ -592,7 +612,7 @@ export class ExtensionBridge {
           return;
         }
         case "auth-get-profile-request": {
-          const profile = await this.gatewayAuthClient.getProfile(message.token);
+          const profile = await this.getGatewayAuthClient().getProfile(message.token);
           const account: UserAccount = {
             name: profile.name || "Developer",
             email: profile.email,
