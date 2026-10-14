@@ -70,6 +70,7 @@ const IGNORED_DIR_NAMES = new Set([
   "dist",
   "dist-node",
   "dist-wasm",
+  "dist-query",
   "build",
   "out",
   "dist-vsix",

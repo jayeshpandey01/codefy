@@ -131,7 +131,7 @@
         "codefy.auth.url": {
           "type": "string",
           "default": "https://cmd-d-llm.vercel.app",
-          "description": "Base URL of the Central Auth and AI Gateway service."
+          "description": "Base URL of the Codefy Authentication service."
         },
         "codefy.orchestrator.url": {
           "type": "string",

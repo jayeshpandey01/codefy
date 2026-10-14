@@ -15,6 +15,7 @@ export class SecurityServiceApiError extends Error {
     message: string,
     public readonly statusCode: number,
     public readonly detail?: string,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = "SecurityServiceApiError";
@@ -55,11 +56,13 @@ export class SastClient {
   }
 
   private getAuthHeader(): Record<string, string> {
-    const token = this.jwtToken || this.apiKey;
+    const token = this.jwtToken;
     if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
-        "Authentication required: Please sign in to your Codefy account or configure an API key to access SAST services.",
+        "Authentication required: Please sign in to your Codefy account with your email and password to access cloud SAST services.",
         401,
+        "Session has expired or token is invalid.",
+        "session_expired",
       );
     }
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -103,9 +106,10 @@ export class SastClient {
         }
         if (res.status === 401) {
           throw new SecurityServiceApiError(
-            detail || "Session has expired or token is invalid. Please sign in again.",
+            detail || "Cloud SAST scanner rejected authorization. Switch to Local Scan to analyze offline.",
             401,
             detail,
+            "sast_auth_failed",
           );
         }
         throw new SecurityServiceApiError(detail, res.status, detail);

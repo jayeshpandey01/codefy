@@ -14,6 +14,7 @@ export interface ActionableErrorBannerProps {
   title?: string;
   onDismiss?: () => void;
   onRetry?: () => void;
+  onSignIn?: () => void;
   className?: string;
   compact?: boolean;
 }
@@ -23,6 +24,7 @@ export function ActionableErrorBanner({
   title,
   onDismiss,
   onRetry,
+  onSignIn,
   className = "",
   compact = false,
 }: ActionableErrorBannerProps): React.ReactElement | null {
@@ -182,23 +184,34 @@ export function ActionableErrorBanner({
                 <span className="font-semibold text-[#4ADE80]">
                   🔧 Suggested Fix:
                 </span>
-                <button
-                  type="button"
-                  onClick={handleCopyFix}
-                  className="flex items-center gap-1 rounded bg-[#1C2C20] px-1.5 py-0.5 text-[10px] text-[#86EFAC] hover:bg-[#233B28] transition-colors cursor-pointer"
-                >
-                  {copied ? (
-                    <>
-                      <CheckIcon size={10} className="text-[#4ADE80]" />
-                      <span>Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <CopyIcon size={10} />
-                      <span>Copy</span>
-                    </>
+                <div className="flex items-center gap-1.5">
+                  {onSignIn && (err.code === "session_expired" || /sign in/i.test(err.fix || "")) && (
+                    <button
+                      type="button"
+                      onClick={onSignIn}
+                      className="flex items-center gap-1 rounded bg-[#2563EB] px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-[#1D4ED8] transition-colors cursor-pointer"
+                    >
+                      <span>Sign In</span>
+                    </button>
                   )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyFix}
+                    className="flex items-center gap-1 rounded bg-[#1C2C20] px-1.5 py-0.5 text-[10px] text-[#86EFAC] hover:bg-[#233B28] transition-colors cursor-pointer"
+                  >
+                    {copied ? (
+                      <>
+                        <CheckIcon size={10} className="text-[#4ADE80]" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <CopyIcon size={10} />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               <div className="font-mono text-[10.5px] text-[#A7F3D0] break-all select-all bg-[#0D1610] p-1.5 rounded">
                 {err.fix}

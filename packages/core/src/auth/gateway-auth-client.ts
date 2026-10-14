@@ -6,6 +6,7 @@ export interface GatewayAuthClientOptions {
   readonly baseUrl?: string;
   readonly timeoutMs?: number;
   readonly fetchImpl?: typeof fetch;
+  readonly authPathPrefix?: "/v1/auth" | "/developer/auth";
 }
 
 export interface RegisterInput {
@@ -16,7 +17,11 @@ export interface RegisterInput {
 
 export type RegisterResult =
   | { readonly status: "authenticated"; readonly session: AuthSession }
-  | { readonly status: "pending_verification"; readonly email: string };
+  | {
+      readonly status: "pending_verification";
+      readonly email: string;
+      readonly registrationToken?: string;
+    };
 
 interface TokenResponseJson {
   readonly access_token: string;
@@ -31,7 +36,12 @@ interface TokenResponseJson {
 /** Marks an error as an already-curated, safe-to-show message (built from
  * the server's own response) -- distinguishes it from a raw network/abort
  * error, which must never reach the user verbatim (see toGenericError). */
-class AuthApiError extends Error {}
+class AuthApiError extends Error {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+    this.name = "AuthApiError";
+  }
+}
 
 function isTier(value: string): value is AuthSession["tier"] {
   return value === "community" || value === "pro" || value === "enterprise";
@@ -43,9 +53,9 @@ function toSession(json: TokenResponseJson): AuthSession {
     tokenType: json.token_type || "bearer",
     userId: json.user_id,
     email: json.email,
-    name: json.name,
+    name: json.name || json.email.split("@")[0] || "Developer",
     tier: isTier(json.tier) ? json.tier : "community",
-    expiresAt: Date.now() + Math.max(0, json.expires_in_seconds) * 1000,
+    expiresAt: Date.now() + Math.max(0, json.expires_in_seconds ?? 86400) * 1000,
   };
 }
 
@@ -64,9 +74,17 @@ export class GatewayAuthClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly pendingRegistrationTokens = new Map<string, string>();
+
+  private readonly authPrefix: string;
 
   constructor(options: GatewayAuthClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_AUTH_SERVICE_URL || DEFAULT_AI_GATEWAY_URL).replace(/\/+$/, "");
+    this.authPrefix =
+      options.authPathPrefix ||
+      (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com")
+        ? "/v1/auth"
+        : "/developer/auth");
     // Generous default: a cold Render instance plus server-side email
     // dispatch on register/resend can genuinely take this long.
     this.timeoutMs = options.timeoutMs ?? 45_000;
@@ -144,16 +162,23 @@ export class GatewayAuthClient {
         ? this.detailToMessage((json as { detail: unknown }).detail)
         : undefined;
     if (res.status === 401 || res.status === 403) {
-      throw new AuthApiError(detail || "Invalid email or password.");
+      throw new AuthApiError(detail || "Invalid email or password.", res.status);
     }
     if (res.status === 409) {
-      throw new AuthApiError(detail || "An account with that email already exists.");
+      throw new AuthApiError(detail || "An account with that email already exists.", res.status);
     }
     if (res.status === 422) {
-      throw new AuthApiError(detail || "Please check your name, email, and password.");
+      throw new AuthApiError(detail || "Please check your name, email, and password.", res.status);
+    }
+    if (res.status === 429) {
+      throw new AuthApiError(
+        detail || "Authentication service is temporarily busy. Please try again shortly.",
+        res.status,
+      );
     }
     throw new AuthApiError(
       detail || "The account service is temporarily unavailable. Please try again.",
+      res.status,
     );
   }
 
@@ -182,30 +207,134 @@ export class GatewayAuthClient {
   }
 
   async register(input: RegisterInput): Promise<RegisterResult> {
-    const json = (await this.post("/developer/auth/register", input)) as
-      | TokenResponseJson
-      | Record<string, unknown>;
-    if (json && typeof json === "object" && "access_token" in json) {
-      return { status: "authenticated", session: toSession(json as TokenResponseJson) };
+    try {
+      const json = (await this.post(`${this.authPrefix}/register`, input)) as
+        | TokenResponseJson
+        | Record<string, unknown>;
+      if (json && typeof json === "object" && "access_token" in json) {
+        return { status: "authenticated", session: toSession(json as TokenResponseJson) };
+      }
+      const regToken =
+        typeof json === "object" && json && "registration_token" in json && typeof json.registration_token === "string"
+          ? json.registration_token
+          : undefined;
+      if (regToken) {
+        this.pendingRegistrationTokens.set(input.email.trim().toLowerCase(), regToken);
+      }
+      return {
+        status: "pending_verification",
+        email: input.email,
+        ...(regToken ? { registrationToken: regToken } : {}),
+      };
+    } catch (err) {
+      if (
+        this.baseUrl !== DEFAULT_AI_GATEWAY_URL &&
+        (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))
+      ) {
+        const fallbackClient = new GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl,
+        });
+        return await fallbackClient.register(input);
+      }
+      throw err;
     }
-    return { status: "pending_verification", email: input.email };
   }
 
-  async verifyEmail(email: string, code: string): Promise<AuthSession> {
-    const json = (await this.post("/developer/auth/verify-email", {
+  async verifyEmail(email: string, code: string, registrationToken?: string): Promise<AuthSession> {
+    const cleanEmail = email.trim().toLowerCase();
+    const token = registrationToken || this.pendingRegistrationTokens.get(cleanEmail);
+    const body: Record<string, string> = {
       email,
       code,
-    })) as TokenResponseJson;
-    return toSession(json);
+      ...(token ? { registration_token: token } : {}),
+    };
+    try {
+      const json = (await this.post("/developer/auth/verify-email", body)) as TokenResponseJson;
+      this.pendingRegistrationTokens.delete(cleanEmail);
+      return toSession(json);
+    } catch (err) {
+      if (
+        this.baseUrl !== DEFAULT_AI_GATEWAY_URL &&
+        (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))
+      ) {
+        const fallbackClient = new GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl,
+        });
+        return await fallbackClient.verifyEmail(email, code, registrationToken);
+      }
+      throw err;
+    }
   }
 
-  async resendCode(email: string): Promise<void> {
-    await this.post("/developer/auth/resend-code", { email });
+  async resendCode(email: string, registrationToken?: string): Promise<void> {
+    const cleanEmail = email.trim().toLowerCase();
+    const token = registrationToken || this.pendingRegistrationTokens.get(cleanEmail);
+    const body: Record<string, string> = {
+      email,
+      ...(token ? { registration_token: token } : {}),
+    };
+    try {
+      const res = (await this.post("/developer/auth/resend-code", body)) as Record<string, unknown>;
+      if (res && typeof res.registration_token === "string") {
+        this.pendingRegistrationTokens.set(cleanEmail, res.registration_token);
+      }
+    } catch (err) {
+      if (
+        this.baseUrl !== DEFAULT_AI_GATEWAY_URL &&
+        (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))
+      ) {
+        const fallbackClient = new GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl,
+        });
+        return await fallbackClient.resendCode(email, registrationToken);
+      }
+      throw err;
+    }
   }
 
   async login(email: string, password: string): Promise<AuthSession> {
-    const json = (await this.post("/developer/auth/login", { email, password })) as TokenResponseJson;
-    return toSession(json);
+    try {
+      const json = (await this.post(`${this.authPrefix}/login`, { email, password })) as TokenResponseJson;
+      return toSession(json);
+    } catch (err) {
+      if (
+        this.baseUrl !== DEFAULT_AI_GATEWAY_URL &&
+        (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))
+      ) {
+        const fallbackClient = new GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl,
+        });
+        return await fallbackClient.login(email, password);
+      }
+      throw err;
+    }
+  }
+
+  private async getMe(accessToken: string): Promise<unknown> {
+    try {
+      return await this.get(`${this.authPrefix}/me`, accessToken);
+    } catch (err) {
+      if (
+        this.baseUrl !== DEFAULT_AI_GATEWAY_URL &&
+        (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))
+      ) {
+        const fallbackClient = new GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl,
+        });
+        return await fallbackClient.getMe(accessToken);
+      }
+      throw err;
+    }
   }
 
   /** Validates a persisted session is still accepted server-side. Returns
@@ -214,10 +343,20 @@ export class GatewayAuthClient {
    * an unhandled error. */
   async isSessionValid(accessToken: string): Promise<boolean> {
     try {
-      await this.get("/developer/auth/me", accessToken);
+      await this.getMe(accessToken);
       return true;
     } catch {
       return false;
+    }
+  }
+
+  async logout(accessToken: string): Promise<void> {
+    try {
+      await this.post("/v1/auth/logout", {}, accessToken);
+    } catch (err) {
+      if (err instanceof AuthApiError && err.status === 404) {
+        await this.post("/developer/auth/logout", {}, accessToken).catch(() => {});
+      }
     }
   }
 
@@ -271,19 +410,29 @@ export class GatewayAuthClient {
    */
   async getProfile(accessToken: string): Promise<{
     user_id: string;
+    userId: string;
     email: string;
     name: string;
     tier: string;
     email_verified?: boolean;
   }> {
-    const json = (await this.get("/developer/auth/me", accessToken)) as {
-      user_id: string;
+    const json = (await this.getMe(accessToken)) as {
+      user_id?: string;
+      userId?: string;
       email: string;
-      name: string;
-      tier: string;
+      name?: string;
+      tier?: string;
       email_verified?: boolean;
     };
-    return json;
+    const uid = json.user_id || json.userId || "";
+    return {
+      user_id: uid,
+      userId: uid,
+      email: json.email,
+      name: json.name || json.email.split("@")[0] || "Developer",
+      tier: isTier(json.tier || "") ? json.tier! : "community",
+      email_verified: json.email_verified ?? true,
+    };
   }
 
   /**

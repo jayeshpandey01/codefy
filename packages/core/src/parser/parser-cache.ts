@@ -52,7 +52,13 @@ export async function parseWithCache(
   while (cache.size > MAX_CACHE_ENTRIES) {
     const oldestKey = cache.keys().next().value;
     if (oldestKey === undefined) break;
+    const entry = cache.get(oldestKey);
     cache.delete(oldestKey);
+    try {
+      (entry?.tree as { delete?: () => void })?.delete?.();
+    } catch {
+      // ignore
+    }
   }
 
   return tree;

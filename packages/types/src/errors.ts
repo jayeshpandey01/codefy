@@ -69,10 +69,25 @@ export function toStructuredError(
     const link =
       typeof errObj["link"] === "string" ? errObj["link"] : undefined;
 
+    const isSastAuthError = code === "sast_auth_failed" || /cloud sast|remote sast/i.test(message);
     const isExpired =
-      statusCode === 401 ||
-      code === "session_expired" ||
-      isSessionExpiredText(message);
+      !isSastAuthError &&
+      (statusCode === 401 ||
+        code === "session_expired" ||
+        isSessionExpiredText(message));
+
+    if (isSastAuthError) {
+      return {
+        message,
+        code: "sast_auth_failed",
+        scope: scope || "sast",
+        statusCode: statusCode ?? 401,
+        reason: reason || "The remote Cloud SAST scanner rejected authorization for this scan.",
+        hint: hint || "Your Codefy account session is active. You can run scans locally using the built-in offline engine.",
+        fix: fix || "Switch scan mode to Local Scan or verify remote scanner keys.",
+        link,
+      };
+    }
 
     return {
       message,

@@ -2626,13 +2626,19 @@ ${prompt}` : prompt);
 // src/orchestrator/constants.ts
 var DEFAULT_AUTH_SERVICE_URL = "https://cmd-d-llm.vercel.app";
 var DEFAULT_SAST_SERVICE_URL = "https://sast-dutn.onrender.com";
-var DEFAULT_DAST_SERVICE_URL = "https://dast-dutn.onrender.com";
+var DEFAULT_DAST_SERVICE_URL = "https://dast-js9w.onrender.com";
 var DEFAULT_ORCHESTRATOR_URL = DEFAULT_SAST_SERVICE_URL;
 var DEFAULT_OPERATOR_API_KEY = "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
 var DEFAULT_ADMIN_API_KEY = "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
 
 // src/auth/gateway-auth-client.ts
 var AuthApiError = class extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+    this.name = "AuthApiError";
+  }
+  status;
 };
 function isTier(value) {
   return value === "community" || value === "pro" || value === "enterprise";
@@ -2643,17 +2649,20 @@ function toSession(json) {
     tokenType: json.token_type || "bearer",
     userId: json.user_id,
     email: json.email,
-    name: json.name,
+    name: json.name || json.email.split("@")[0] || "Developer",
     tier: isTier(json.tier) ? json.tier : "community",
-    expiresAt: Date.now() + Math.max(0, json.expires_in_seconds) * 1e3
+    expiresAt: Date.now() + Math.max(0, json.expires_in_seconds ?? 86400) * 1e3
   };
 }
-var GatewayAuthClient = class {
+var GatewayAuthClient = class _GatewayAuthClient {
   baseUrl;
   timeoutMs;
   fetchImpl;
+  pendingRegistrationTokens = /* @__PURE__ */ new Map();
+  authPrefix;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_AUTH_SERVICE_URL || DEFAULT_AI_GATEWAY_URL).replace(/\/+$/, "");
+    this.authPrefix = options.authPathPrefix || (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com") ? "/v1/auth" : "/developer/auth");
     this.timeoutMs = options.timeoutMs ?? 45e3;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
@@ -2716,16 +2725,23 @@ var GatewayAuthClient = class {
     const json = await res.json().catch(() => void 0);
     const detail = json && typeof json === "object" && "detail" in json ? this.detailToMessage(json.detail) : void 0;
     if (res.status === 401 || res.status === 403) {
-      throw new AuthApiError(detail || "Invalid email or password.");
+      throw new AuthApiError(detail || "Invalid email or password.", res.status);
     }
     if (res.status === 409) {
-      throw new AuthApiError(detail || "An account with that email already exists.");
+      throw new AuthApiError(detail || "An account with that email already exists.", res.status);
     }
     if (res.status === 422) {
-      throw new AuthApiError(detail || "Please check your name, email, and password.");
+      throw new AuthApiError(detail || "Please check your name, email, and password.", res.status);
+    }
+    if (res.status === 429) {
+      throw new AuthApiError(
+        detail || "Authentication service is temporarily busy. Please try again shortly.",
+        res.status
+      );
     }
     throw new AuthApiError(
-      detail || "The account service is temporarily unavailable. Please try again."
+      detail || "The account service is temporarily unavailable. Please try again.",
+      res.status
     );
   }
   detailToMessage(detail) {
@@ -2745,25 +2761,110 @@ var GatewayAuthClient = class {
     return new Error("Couldn't reach the account service. Check your connection and try again.");
   }
   async register(input) {
-    const json = await this.post("/developer/auth/register", input);
-    if (json && typeof json === "object" && "access_token" in json) {
-      return { status: "authenticated", session: toSession(json) };
+    try {
+      const json = await this.post(`${this.authPrefix}/register`, input);
+      if (json && typeof json === "object" && "access_token" in json) {
+        return { status: "authenticated", session: toSession(json) };
+      }
+      const regToken = typeof json === "object" && json && "registration_token" in json && typeof json.registration_token === "string" ? json.registration_token : void 0;
+      if (regToken) {
+        this.pendingRegistrationTokens.set(input.email.trim().toLowerCase(), regToken);
+      }
+      return {
+        status: "pending_verification",
+        email: input.email,
+        ...regToken ? { registrationToken: regToken } : {}
+      };
+    } catch (err) {
+      if (this.baseUrl !== DEFAULT_AI_GATEWAY_URL && (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))) {
+        const fallbackClient = new _GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl
+        });
+        return await fallbackClient.register(input);
+      }
+      throw err;
     }
-    return { status: "pending_verification", email: input.email };
   }
-  async verifyEmail(email, code) {
-    const json = await this.post("/developer/auth/verify-email", {
+  async verifyEmail(email, code, registrationToken) {
+    const cleanEmail = email.trim().toLowerCase();
+    const token = registrationToken || this.pendingRegistrationTokens.get(cleanEmail);
+    const body = {
       email,
-      code
-    });
-    return toSession(json);
+      code,
+      ...token ? { registration_token: token } : {}
+    };
+    try {
+      const json = await this.post("/developer/auth/verify-email", body);
+      this.pendingRegistrationTokens.delete(cleanEmail);
+      return toSession(json);
+    } catch (err) {
+      if (this.baseUrl !== DEFAULT_AI_GATEWAY_URL && (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))) {
+        const fallbackClient = new _GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl
+        });
+        return await fallbackClient.verifyEmail(email, code, registrationToken);
+      }
+      throw err;
+    }
   }
-  async resendCode(email) {
-    await this.post("/developer/auth/resend-code", { email });
+  async resendCode(email, registrationToken) {
+    const cleanEmail = email.trim().toLowerCase();
+    const token = registrationToken || this.pendingRegistrationTokens.get(cleanEmail);
+    const body = {
+      email,
+      ...token ? { registration_token: token } : {}
+    };
+    try {
+      const res = await this.post("/developer/auth/resend-code", body);
+      if (res && typeof res.registration_token === "string") {
+        this.pendingRegistrationTokens.set(cleanEmail, res.registration_token);
+      }
+    } catch (err) {
+      if (this.baseUrl !== DEFAULT_AI_GATEWAY_URL && (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))) {
+        const fallbackClient = new _GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl
+        });
+        return await fallbackClient.resendCode(email, registrationToken);
+      }
+      throw err;
+    }
   }
   async login(email, password) {
-    const json = await this.post("/developer/auth/login", { email, password });
-    return toSession(json);
+    try {
+      const json = await this.post(`${this.authPrefix}/login`, { email, password });
+      return toSession(json);
+    } catch (err) {
+      if (this.baseUrl !== DEFAULT_AI_GATEWAY_URL && (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))) {
+        const fallbackClient = new _GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl
+        });
+        return await fallbackClient.login(email, password);
+      }
+      throw err;
+    }
+  }
+  async getMe(accessToken) {
+    try {
+      return await this.get(`${this.authPrefix}/me`, accessToken);
+    } catch (err) {
+      if (this.baseUrl !== DEFAULT_AI_GATEWAY_URL && (this.baseUrl.includes("sast") || this.baseUrl.includes("render.com"))) {
+        const fallbackClient = new _GatewayAuthClient({
+          baseUrl: DEFAULT_AI_GATEWAY_URL,
+          timeoutMs: this.timeoutMs,
+          fetchImpl: this.fetchImpl
+        });
+        return await fallbackClient.getMe(accessToken);
+      }
+      throw err;
+    }
   }
   /** Validates a persisted session is still accepted server-side. Returns
    * false (never throws) on any failure -- an unreachable gateway or an
@@ -2771,10 +2872,20 @@ var GatewayAuthClient = class {
    * an unhandled error. */
   async isSessionValid(accessToken) {
     try {
-      await this.get("/developer/auth/me", accessToken);
+      await this.getMe(accessToken);
       return true;
     } catch {
       return false;
+    }
+  }
+  async logout(accessToken) {
+    try {
+      await this.post("/v1/auth/logout", {}, accessToken);
+    } catch (err) {
+      if (err instanceof AuthApiError && err.status === 404) {
+        await this.post("/developer/auth/logout", {}, accessToken).catch(() => {
+        });
+      }
     }
   }
   /**
@@ -2816,8 +2927,16 @@ var GatewayAuthClient = class {
    * Retrieve active developer profile metadata (including email verification status).
    */
   async getProfile(accessToken) {
-    const json = await this.get("/developer/auth/me", accessToken);
-    return json;
+    const json = await this.getMe(accessToken);
+    const uid = json.user_id || json.userId || "";
+    return {
+      user_id: uid,
+      userId: uid,
+      email: json.email,
+      name: json.name || json.email.split("@")[0] || "Developer",
+      tier: isTier(json.tier || "") ? json.tier : "community",
+      email_verified: json.email_verified ?? true
+    };
   }
   /**
    * List all generated API keys associated with the current developer account.
@@ -3568,14 +3687,16 @@ function generateMarkdownReport(session, secrets = [], options = DEFAULT_OPTIONS
 
 // src/sast/client.ts
 var SecurityServiceApiError = class extends Error {
-  constructor(message, statusCode, detail) {
+  constructor(message, statusCode, detail, code) {
     super(message);
     this.statusCode = statusCode;
     this.detail = detail;
+    this.code = code;
     this.name = "SecurityServiceApiError";
   }
   statusCode;
   detail;
+  code;
 };
 var TERMINAL_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "expired"]);
 var SastClient = class {
@@ -3593,11 +3714,13 @@ var SastClient = class {
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
   getAuthHeader() {
-    const token = this.jwtToken || this.apiKey;
+    const token = this.jwtToken;
     if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
-        "Authentication required: Please sign in to your Codefy account or configure an API key to access SAST services.",
-        401
+        "Authentication required: Please sign in to your Codefy account with your email and password to access cloud SAST services.",
+        401,
+        "Session has expired or token is invalid.",
+        "session_expired"
       );
     }
     const headers = { Authorization: `Bearer ${token}` };
@@ -3633,9 +3756,10 @@ var SastClient = class {
         }
         if (res.status === 401) {
           throw new SecurityServiceApiError(
-            detail || "Session has expired or token is invalid. Please sign in again.",
+            detail || "Cloud SAST scanner rejected authorization. Switch to Local Scan to analyze offline.",
             401,
-            detail
+            detail,
+            "sast_auth_failed"
           );
         }
         throw new SecurityServiceApiError(detail, res.status, detail);
@@ -3838,6 +3962,13 @@ var DastClient = class {
             detail
           );
         }
+        if (res.status === 404) {
+          throw new SecurityServiceApiError(
+            "DAST scanning service is currently unavailable or not deployed at this endpoint (HTTP 404).",
+            404,
+            detail
+          );
+        }
         throw new SecurityServiceApiError(detail, res.status, detail);
       }
       return await res.json();
@@ -3855,7 +3986,11 @@ var DastClient = class {
     return this.request("/health", { method: "GET" }, false);
   }
   async getTools() {
-    return this.request("/v1/dast/tools", { method: "GET" }, false);
+    try {
+      return await this.request("/v1/tools", { method: "GET" }, false);
+    } catch {
+      return await this.request("/v1/dast/tools", { method: "GET" }, false);
+    }
   }
   /**
    * Pre-flight SSRF Guardrail validation.
@@ -4896,7 +5031,7 @@ var ScanOrchestratorClient = class {
       }
       if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-      } else if (key && !headers["Authorization"]) {
+      } else if (!this.useMicroservices && key && !headers["Authorization"]) {
         headers["Authorization"] = `Bearer ${key}`;
       }
       if (!headers["X-API-Key"] && !headers["Authorization"]) {

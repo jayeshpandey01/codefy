@@ -132,4 +132,23 @@ describe("DastClient", () => {
       client.submitScan({ target_url: "http://127.0.0.1:8000" }),
     ).rejects.toThrow("Target hostname resolves to a restricted private or internal IP");
   });
+
+  it("handles 404 endpoint not deployed with friendly message", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("Not Found", {
+        status: 404,
+        headers: { "Content-Type": "text/plain" },
+      }),
+    );
+
+    const client = new DastClient({
+      baseUrl: "https://dast-dutn.onrender.com",
+      jwtToken: "test.jwt.bearer",
+      fetchImpl: fetchMock,
+    });
+
+    await expect(
+      client.submitScan({ target_url: "https://example.com" }),
+    ).rejects.toThrow("DAST scanning service is currently unavailable or not deployed");
+  });
 });

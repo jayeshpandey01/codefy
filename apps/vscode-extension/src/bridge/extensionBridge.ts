@@ -125,8 +125,6 @@ export class ExtensionBridge {
       clean(legacyConfig.get<string>("auth.url")) ||
       clean(process.env.AUTH_SERVICE_URL) ||
       clean(env.AUTH_SERVICE_URL) ||
-      clean(process.env.AI_GATEWAY_URL) ||
-      clean(env.AI_GATEWAY_URL) ||
       DEFAULT_AUTH_SERVICE_URL;
 
     return new GatewayAuthClient({ baseUrl });
@@ -221,8 +219,6 @@ export class ExtensionBridge {
       clean(config.get<string>("auth.url")) ||
       clean(process.env.AUTH_SERVICE_URL) ||
       clean(env.AUTH_SERVICE_URL) ||
-      clean(process.env.AI_GATEWAY_URL) ||
-      clean(env.AI_GATEWAY_URL) ||
       DEFAULT_AUTH_SERVICE_URL;
 
     return new ScanOrchestratorClient({
@@ -538,6 +534,7 @@ export class ExtensionBridge {
             type: "auth-register-result",
             status: result.status,
             email: result.status === "pending_verification" ? result.email : message.email,
+            registrationToken: result.status === "pending_verification" ? result.registrationToken : undefined,
             session: result.status === "authenticated" ? result.session : undefined,
             requestId: message.requestId,
           });
@@ -547,12 +544,13 @@ export class ExtensionBridge {
           const session = await this.getGatewayAuthClient().verifyEmail(
             message.email,
             message.code,
+            message.registrationToken,
           );
           this.post({ type: "auth-verify-email-result", session, requestId: message.requestId });
           return;
         }
         case "auth-resend-code-request": {
-          await this.getGatewayAuthClient().resendCode(message.email);
+          await this.getGatewayAuthClient().resendCode(message.email, message.registrationToken);
           this.post({ type: "auth-resend-code-result", requestId: message.requestId });
           return;
         }
@@ -651,7 +649,7 @@ export class ExtensionBridge {
                 if (isRecord(bucket)) {
                   const items = Object.values(bucket);
                   const storePath = path.join(codefyDir, `${store}.json`);
-                  fs.writeFileSync(storePath, JSON.stringify(items, null, 2), "utf-8");
+                  void fs.promises.writeFile(storePath, JSON.stringify(items), "utf-8").catch(() => {});
                 }
               }
             }
@@ -668,9 +666,10 @@ export class ExtensionBridge {
     } catch (error) {
       const structured = toStructuredError(error, "orchestrator");
       if (
-        structured.statusCode === 401 ||
-        structured.code === "session_expired" ||
-        /session.*expire|token.*invalid|invalid.*token/i.test(structured.message)
+        message.type.startsWith("auth-") &&
+        (structured.statusCode === 401 ||
+          structured.code === "session_expired" ||
+          /session.*expire|token.*invalid|invalid.*token/i.test(structured.message))
       ) {
         void this.context.secrets.delete(AUTH_SESSION_SECRET_KEY);
       }

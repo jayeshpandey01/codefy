@@ -64,6 +64,7 @@ import {
   GatewayAuthClient,
   runChatQuery,
   DEFAULT_ORCHESTRATOR_URL,
+  DEFAULT_AUTH_SERVICE_URL,
   DEFAULT_AI_GATEWAY_URL,
   DEFAULT_OPERATOR_API_KEY,
   parseSlashCommand,
@@ -172,8 +173,13 @@ export function App(): ReactElement {
   const aiGatewayBaseUrl = useMemo(
     () =>
       import.meta.env.VITE_AI_API_URL ||
-      import.meta.env.VITE_AXIOM_API_URL ||
       DEFAULT_AI_GATEWAY_URL,
+    [],
+  );
+  const authServiceBaseUrl = useMemo(
+    () =>
+      import.meta.env.VITE_AUTH_API_URL ||
+      DEFAULT_AUTH_SERVICE_URL,
     [],
   );
   const hostedLlmClient = useMemo(
@@ -181,8 +187,8 @@ export function App(): ReactElement {
     [aiGatewayBaseUrl],
   );
   const gatewayAuthClient = useMemo(
-    () => new GatewayAuthClient({ baseUrl: aiGatewayBaseUrl }),
-    [aiGatewayBaseUrl],
+    () => new GatewayAuthClient({ baseUrl: authServiceBaseUrl }),
+    [authServiceBaseUrl],
   );
   const [selectedFinding, setSelectedFinding] = useState<Finding | undefined>(undefined);
 
@@ -252,6 +258,7 @@ export function App(): ReactElement {
   // into the login form even when the session check below resolves
   // almost instantly -- SplashScreen owns the timing via onFinished.
   const [showSplash, setShowSplash] = useState<boolean>(true);
+  const pendingRegTokenRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let mounted = true;
@@ -977,9 +984,11 @@ export function App(): ReactElement {
       try {
         const result = await gatewayAuthClient.register({ name, email, password });
         if (result.status === "authenticated") {
+          pendingRegTokenRef.current = undefined;
           await handleAuthSuccess(result.session);
           return { ok: true as const, status: "authenticated" as const };
         }
+        pendingRegTokenRef.current = result.registrationToken;
         return { ok: true as const, status: "pending_verification" as const, email: result.email };
       } catch (err) {
         return {
@@ -994,7 +1003,8 @@ export function App(): ReactElement {
   const handleWelcomeVerifyCode = useCallback(
     async (email: string, code: string) => {
       try {
-        const session = await gatewayAuthClient.verifyEmail(email, code);
+        const session = await gatewayAuthClient.verifyEmail(email, code, pendingRegTokenRef.current);
+        pendingRegTokenRef.current = undefined;
         await handleAuthSuccess(session);
         return { ok: true as const };
       } catch (err) {
@@ -1009,7 +1019,7 @@ export function App(): ReactElement {
 
   const handleWelcomeResendCode = useCallback(
     async (email: string) => {
-      await gatewayAuthClient.resendCode(email);
+      await gatewayAuthClient.resendCode(email, pendingRegTokenRef.current);
     },
     [gatewayAuthClient],
   );
@@ -1069,7 +1079,8 @@ export function App(): ReactElement {
 
   const handleVerifyEmail = useCallback(
     async (email: string, code: string) => {
-      const session = await gatewayAuthClient.verifyEmail(email, code);
+      const session = await gatewayAuthClient.verifyEmail(email, code, pendingRegTokenRef.current);
+      pendingRegTokenRef.current = undefined;
       await handleAuthSuccess(session);
     },
     [gatewayAuthClient, handleAuthSuccess],
@@ -1077,7 +1088,7 @@ export function App(): ReactElement {
 
   const handleResendEmailCode = useCallback(
     async (email: string) => {
-      await gatewayAuthClient.resendCode(email);
+      await gatewayAuthClient.resendCode(email, pendingRegTokenRef.current);
     },
     [gatewayAuthClient],
   );

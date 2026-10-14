@@ -246,6 +246,7 @@ function App(): ReactElement {
   // frame into the login form even when the session check below resolves
   // almost instantly -- SplashScreen owns the timing via onFinished.
   const [showSplash, setShowSplash] = useState<boolean>(true);
+  const pendingRegTokenRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let mounted = true;
@@ -562,9 +563,11 @@ function App(): ReactElement {
           Extract<BridgeMessage, { type: "auth-register-result" }>
         >({ type: "auth-register-request", name, email, password });
         if (res.status === "authenticated" && res.session) {
+          pendingRegTokenRef.current = undefined;
           await handleAuthSuccess(res.session);
           return { ok: true as const, status: "authenticated" as const };
         }
+        pendingRegTokenRef.current = res.registrationToken;
         return { ok: true as const, status: "pending_verification" as const, email: res.email };
       } catch (err) {
         return {
@@ -582,7 +585,8 @@ function App(): ReactElement {
         const res = await bridge.request<
           Extract<BridgeMessage, { type: "auth-verify-email-request" }>,
           Extract<BridgeMessage, { type: "auth-verify-email-result" }>
-        >({ type: "auth-verify-email-request", email, code });
+        >({ type: "auth-verify-email-request", email, code, registrationToken: pendingRegTokenRef.current });
+        pendingRegTokenRef.current = undefined;
         await handleAuthSuccess(res.session);
         return { ok: true as const };
       } catch (err) {
@@ -599,7 +603,7 @@ function App(): ReactElement {
     await bridge.request<
       Extract<BridgeMessage, { type: "auth-resend-code-request" }>,
       Extract<BridgeMessage, { type: "auth-resend-code-result" }>
-    >({ type: "auth-resend-code-request", email });
+    >({ type: "auth-resend-code-request", email, registrationToken: pendingRegTokenRef.current });
   }, []);
 
   const handleContinueOffline = useCallback(() => {
@@ -674,7 +678,8 @@ function App(): ReactElement {
       const res = await bridge.request<
         Extract<BridgeMessage, { type: "auth-verify-email-request" }>,
         Extract<BridgeMessage, { type: "auth-verify-email-result" }>
-      >({ type: "auth-verify-email-request", email, code });
+      >({ type: "auth-verify-email-request", email, code, registrationToken: pendingRegTokenRef.current });
+      pendingRegTokenRef.current = undefined;
       await handleAuthSuccess(res.session);
     },
     [handleAuthSuccess],
@@ -684,7 +689,7 @@ function App(): ReactElement {
     await bridge.request<
       Extract<BridgeMessage, { type: "auth-resend-code-request" }>,
       Extract<BridgeMessage, { type: "auth-resend-code-result" }>
-    >({ type: "auth-resend-code-request", email });
+    >({ type: "auth-resend-code-request", email, registrationToken: pendingRegTokenRef.current });
   }, []);
 
   const handleListApiKeys = useCallback(async () => {
@@ -780,7 +785,7 @@ function App(): ReactElement {
         requestId: `vscode-scan-${Date.now()}`,
       });
     },
-    [selectedFolder, userSettings?.rules],
+    [selectedFolder, userSettings?.rules, userSettings?.customExcludedDirs, userSettings?.maxScannableFiles],
   );
 
   const handleBrowseFolder = useCallback(async (): Promise<string | null> => {
@@ -1394,6 +1399,11 @@ function App(): ReactElement {
                 error={errorPayload}
                 onDismiss={() => setErrorPayload(null)}
                 onRetry={() => handleScanWorkspace()}
+                onSignIn={() => {
+                  setErrorPayload(null);
+                  void clearAuthSession();
+                  setAuthSession(null);
+                }}
               />
             </div>
           )}

@@ -313,12 +313,14 @@ export type BridgeMessage =
       readonly type: "auth-register-result";
       readonly status: "authenticated" | "pending_verification";
       readonly email: string;
+      readonly registrationToken?: string;
       readonly session?: AuthSession;
     })
   | (BaseMessage & {
       readonly type: "auth-verify-email-request";
       readonly email: string;
       readonly code: string;
+      readonly registrationToken?: string;
     })
   | (BaseMessage & {
       readonly type: "auth-verify-email-result";
@@ -327,6 +329,7 @@ export type BridgeMessage =
   | (BaseMessage & {
       readonly type: "auth-resend-code-request";
       readonly email: string;
+      readonly registrationToken?: string;
     })
   | (BaseMessage & { readonly type: "auth-resend-code-result" })
   | (BaseMessage & {

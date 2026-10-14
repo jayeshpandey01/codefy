@@ -107,6 +107,13 @@ export class DastClient {
             detail,
           );
         }
+        if (res.status === 404) {
+          throw new SecurityServiceApiError(
+            "DAST scanning service is currently unavailable or not deployed at this endpoint (HTTP 404).",
+            404,
+            detail,
+          );
+        }
         throw new SecurityServiceApiError(detail, res.status, detail);
       }
 
@@ -128,7 +135,11 @@ export class DastClient {
   }
 
   async getTools(): Promise<DastToolCatalogResponse> {
-    return this.request("/v1/dast/tools", { method: "GET" }, false);
+    try {
+      return await this.request("/v1/tools", { method: "GET" }, false);
+    } catch {
+      return await this.request("/v1/dast/tools", { method: "GET" }, false);
+    }
   }
 
   /**

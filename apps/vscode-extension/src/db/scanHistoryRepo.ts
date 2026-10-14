@@ -1,5 +1,5 @@
 import type { Finding, ScanSessionEntry, ScanSessionWithFindings } from "@whoami/types";
-import { dbClear, dbDelete, dbGet, dbGetAll, dbGetAllFromIndex, dbPut, STORES } from "./database.js";
+import { dbClear, dbDelete, dbGet, dbGetAll, dbGetAllFromIndex, dbPut, dbPutMany, STORES } from "./database.js";
 
 /**
  * Same external shape as apps/desktop-app/src/db/scanHistoryRepo.ts, but
@@ -26,13 +26,13 @@ export async function saveScanSession(
       findingsCount: findings.length,
     });
 
-    for (const f of findings) {
-      const record: StoredFinding = {
+    if (findings.length > 0) {
+      const records: StoredFinding[] = findings.map((f) => ({
         id: `${session.id}_${f.id}`,
         sessionId: session.id,
         finding: f,
-      };
-      await dbPut(STORES.FINDINGS, record);
+      }));
+      await dbPutMany(STORES.FINDINGS, records);
     }
   } catch (err) {
     console.warn("[WhoAmI DB] Error saving scan session:", err);

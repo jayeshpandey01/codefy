@@ -331,7 +331,7 @@ export class ScanOrchestratorClient {
       }
       if (this.jwtToken && this.jwtToken !== "offline-local-session") {
         headers["Authorization"] = `Bearer ${this.jwtToken}`;
-      } else if (key && !headers["Authorization"]) {
+      } else if (!this.useMicroservices && key && !headers["Authorization"]) {
         headers["Authorization"] = `Bearer ${key}`;
       }
       if (!headers["X-API-Key"] && !headers["Authorization"]) {

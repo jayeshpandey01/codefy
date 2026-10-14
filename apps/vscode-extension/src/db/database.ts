@@ -105,18 +105,17 @@ async function loadBlob(): Promise<PersistedBlob> {
   return loadPromise;
 }
 
-/** Debounced via a macrotask so a burst of synchronous-ish writes (e.g.
- * saveScanSession's per-finding dbPut loop) coalesce into one
- * persistence-save-request instead of one per write. */
+/** Debounced so synchronous/loop writes (e.g. saveScanSession's findings batch)
+ * coalesce into one persistence-save-request instead of one per write. */
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleFlush(): void {
-  if (flushScheduled) return;
-  flushScheduled = true;
-  setTimeout(() => {
-    flushScheduled = false;
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
     if (bridgeClient && cache) {
       bridgeClient.send({ type: "persistence-save-request", data: cache });
     }
-  }, 0);
+  }, 50);
 }
 
 export async function dbGet<T>(
@@ -130,6 +129,18 @@ export async function dbGet<T>(
 export async function dbPut<T>(storeName: StoreName, value: T): Promise<void> {
   const blob = await loadBlob();
   blob[storeName][recordKey(value)] = value;
+  scheduleFlush();
+}
+
+export async function dbPutMany<T>(
+  storeName: StoreName,
+  values: readonly T[],
+): Promise<void> {
+  if (values.length === 0) return;
+  const blob = await loadBlob();
+  for (const value of values) {
+    blob[storeName][recordKey(value)] = value;
+  }
   scheduleFlush();
 }
 

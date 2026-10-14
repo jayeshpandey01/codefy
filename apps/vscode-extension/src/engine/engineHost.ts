@@ -5,6 +5,7 @@ import {
   buildWorkspaceGraph,
   createAnalysisEngine,
   deduplicateFindings,
+  DeterministicOnlyProvider,
   type AnalysisEngine,
 } from "@whoami/core/node";
 import type { Finding, RuleToggleConfig, ScanCoverage, WorkspaceGraph } from "@whoami/types";
@@ -70,8 +71,10 @@ const IGNORED_DIR_NAMES = new Set([
   ".nuxt",
   ".cache",
   ".idea",
+  ".vscode",
   "build",
   "target",
+  "dist-query",
   // Python virtualenvs / caches -- e.g. site-packages can pull in thousands
   // of vendored files (some multi-MB JSON) that aren't the user's own code.
   "venv",
@@ -79,12 +82,15 @@ const IGNORED_DIR_NAMES = new Set([
   "__pycache__",
   "site-packages",
   ".tox",
+]);
+
+const DEFAULT_EXCLUDED_DIRS = [
   "tests",
   "test",
   "__tests__",
   "fixtures",
   "demo",
-]);
+];
 
 const MAX_SCANNABLE_FILES = 5000;
 
@@ -140,7 +146,9 @@ export class EngineHost {
 
   constructor(private readonly output: vscode.OutputChannel) {
     try {
-      this.engine = createAnalysisEngine();
+      this.engine = createAnalysisEngine({
+        llmProvider: new DeterministicOnlyProvider(),
+      });
     } catch (err) {
       this.output.appendLine(
         `[EngineHost] Core analysis engine initialization notice: ${err instanceof Error ? err.message : String(err)}`,
@@ -150,7 +158,9 @@ export class EngineHost {
 
   private getEngine(): AnalysisEngine {
     if (!this.engine) {
-      this.engine = createAnalysisEngine();
+      this.engine = createAnalysisEngine({
+        llmProvider: new DeterministicOnlyProvider(),
+      });
     }
     return this.engine;
   }
@@ -164,6 +174,7 @@ export class EngineHost {
   private lastFiles: string[] = [];
   private lastFileContents = new Map<string, string>();
   private lastRootPath?: string;
+  private lastWorkspaceGraph?: WorkspaceGraph;
 
   async scanWorkspace(
     rootPath: string,
@@ -192,6 +203,7 @@ export class EngineHost {
     this.lastFiles = files;
     this.lastRootPath = rootPath;
     this.lastFileContents.clear();
+    this.lastWorkspaceGraph = undefined;
 
     const CONCURRENCY = 6;
     let scanned = 0;
@@ -199,6 +211,7 @@ export class EngineHost {
     let failedFiles = 0;
     let oversizedFiles = 0;
     let successfullyScanned = 0;
+    let lastProgressTime = 0;
 
     const worker = async () => {
       while (currentIndex < files.length) {
@@ -235,7 +248,11 @@ export class EngineHost {
           );
         } finally {
           scanned += 1;
-          onProgress?.({ scanned, total: files.length });
+          const now = Date.now();
+          if (scanned === files.length || scanned % 10 === 0 || now - lastProgressTime >= 80) {
+            lastProgressTime = now;
+            onProgress?.({ scanned, total: files.length });
+          }
         }
       }
     };
@@ -251,6 +268,15 @@ export class EngineHost {
     for (const f of uniqueFindings) {
       this.lastFindingsById.set(f.id, f);
     }
+
+    // Precompute workspace architecture graph from in-memory contents to answer
+    // getWorkspaceGraph instantly, matching desktop app's engine.worker behavior.
+    this.lastWorkspaceGraph = buildWorkspaceGraph(
+      files,
+      uniqueFindings,
+      this.lastFileContents,
+      rootPath,
+    );
 
     this.logDiagnostic(
       failedFiles > 0 ? "warn" : "info",
@@ -278,6 +304,10 @@ export class EngineHost {
 
   async getWorkspaceGraph(rootPath?: string): Promise<WorkspaceGraph> {
     const root = rootPath ?? this.lastRootPath ?? "";
+    if (this.lastWorkspaceGraph && (!root || root === this.lastRootPath)) {
+      return this.lastWorkspaceGraph;
+    }
+
     let files = this.lastFiles;
     if (files.length === 0 && root) {
       files = await collectScannableFiles(root);
@@ -298,12 +328,13 @@ export class EngineHost {
       }
     }
 
-    return buildWorkspaceGraph(
+    this.lastWorkspaceGraph = buildWorkspaceGraph(
       files,
       Array.from(this.lastFindingsById.values()),
       this.lastFileContents,
       root,
     );
+    return this.lastWorkspaceGraph;
   }
 }
 
@@ -321,7 +352,8 @@ export async function collectScannableFiles(
 ): Promise<string[]> {
   const results: string[] = [];
   const maxFiles = Math.max(1, Math.min(options.maxScannableFiles ?? MAX_SCANNABLE_FILES, MAX_SCANNABLE_FILES));
-  const customExcludedDirs = new Set((options.customExcludedDirs ?? []).map((name) => name.toLowerCase().trim()));
+  const excludedList = options.customExcludedDirs ?? DEFAULT_EXCLUDED_DIRS;
+  const customExcludedDirs = new Set(excludedList.map((name) => name.toLowerCase().trim()));
 
   async function walk(dir: string): Promise<void> {
     let entries: import("node:fs").Dirent[];
@@ -338,7 +370,12 @@ export async function collectScannableFiles(
         return;
       }
       if (entry.isDirectory()) {
-        if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith(".") || customExcludedDirs.has(entry.name.toLowerCase())) {
+        const lowerName = entry.name.toLowerCase();
+        if (
+          IGNORED_DIR_NAMES.has(lowerName) ||
+          entry.name.startsWith(".") ||
+          customExcludedDirs.has(lowerName)
+        ) {
           stats.directoriesSkipped += 1;
           continue;
         }
