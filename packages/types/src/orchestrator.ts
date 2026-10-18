@@ -227,6 +227,7 @@ export interface ScanResultRead {
 
 export interface PaginationParams {
   skip?: number;
+  offset?: number;
   limit?: number;
 }
 
@@ -240,6 +241,7 @@ export interface ListSastScansParams extends PaginationParams {
   status?: string;
   profile?: string;
   target_id?: string;
+  mode?: string;
 }
 
 export interface HealthLiveResponse {

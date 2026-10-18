@@ -329,6 +329,21 @@ export function packageWorkspaceDirectory(
 
   walk(rootDir);
 
+  // If no files were included (empty folder or target was a name/URL), insert a default manifest entry
+  // so that unzipping on runner environments never fails with a fatal "zipfile is empty" error.
+  if (entries.length === 0) {
+    const stub = {
+      path: "README.md",
+      data: new TextEncoder().encode(
+        `# Codefy SAST Target Workspace\nTarget Path: ${rootDir}\nGenerated: ${new Date().toISOString()}`,
+      ),
+    };
+    entries.push(stub);
+    stats.includedFiles = 1;
+    stats.totalFiles = Math.max(stats.totalFiles, 1);
+    stats.uncompressedBytes += stub.data.length;
+  }
+
   const zipData = buildZipArchive(entries);
   stats.compressedBytes = zipData.length;
 

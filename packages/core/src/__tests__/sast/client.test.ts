@@ -187,4 +187,76 @@ describe("SastClient", () => {
     const patch = await client.getAutofixPatch("job_fix_1");
     expect(patch).toContain("literal_eval");
   });
+
+  it("submits passive scan with target_id in FormData", async () => {
+    let capturedBody: FormData | undefined;
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      capturedBody = init?.body as FormData;
+      return new Response(
+        JSON.stringify({
+          job_id: "job_target_1",
+          mode: "passive",
+          status: "pending",
+          status_url: "/v1/jobs/job_target_1",
+          created_at: "2026-10-06T01:00:00Z",
+          expires_at: "2026-10-06T01:10:00Z",
+          message: "Scan queued",
+        }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const client = new SastClient({
+      baseUrl: "https://test-sast.local",
+      jwtToken: "test.jwt.bearer",
+      fetchImpl: fetchMock,
+    });
+
+    const dummyZip = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+    await client.submitPassiveScan(dummyZip, "code.zip", "target-workspace-123");
+
+    expect(capturedBody).toBeDefined();
+    expect(capturedBody?.get("target_id")).toBe("target-workspace-123");
+  });
+
+  it("lists scans with query parameters and returns ScanListResponse", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              job_id: "job_list_1",
+              target_id: "target-123",
+              user_id: "user-abc",
+              mode: "passive",
+              status: "completed",
+              created_at: "2026-10-18T19:00:00Z",
+              expires_at: "2026-10-18T19:10:00Z",
+              findings: [],
+              scanned_tools: ["semgrep"],
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const client = new SastClient({
+      baseUrl: "https://test-sast.local",
+      jwtToken: "test.jwt.bearer",
+      fetchImpl: fetchMock,
+    });
+
+    const res = await client.listScans({ target_id: "target-123", limit: 50 });
+    expect(res.total).toBe(1);
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]?.job_id).toBe("job_list_1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://test-sast.local/v1/sast/scans?target_id=target-123&limit=50",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
 });

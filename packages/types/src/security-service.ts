@@ -47,6 +47,7 @@ export interface SastCreateResponse {
 
 export interface SastJobDetailResponse {
   readonly job_id: string;
+  readonly target_id?: string | null;
   readonly user_id: string;
   readonly mode: SastScanMode;
   readonly status: SastScanStatus;
@@ -62,6 +63,13 @@ export interface SastJobDetailResponse {
   readonly scanned_tools: readonly string[];
   readonly autofix_patch?: string | null;
   readonly cached?: boolean;
+}
+
+export interface SastScanListResponse {
+  readonly items: readonly SastJobDetailResponse[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
 }
 
 export type SastToolName =
@@ -160,6 +168,7 @@ export interface SastScanDirectRequest {
 
 export interface SastScanRepoRequest {
   readonly repo_url: string;
+  readonly target_id?: string | null;
   readonly branch?: string;
   readonly mode?: SastScanMode;
   readonly github_token?: string | null;

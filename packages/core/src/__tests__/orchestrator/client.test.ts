@@ -582,6 +582,45 @@ describe("ScanOrchestratorClient", () => {
     expect(retried.status).toBe("queued");
   });
 
+  it("handles paginated { items: [...] } object response from SAST service", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      json: async () => ({
+        items: [
+          {
+            job_id: "job_list_abc",
+            target_id: "target-workspace",
+            user_id: "u-1",
+            mode: "passive",
+            status: "completed",
+            created_at: "2026-10-18T19:00:00Z",
+            expires_at: "2026-10-18T19:10:00Z",
+            findings: [],
+            scanned_tools: ["semgrep"],
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      }),
+    });
+
+    const client = new ScanOrchestratorClient({
+      baseUrl: "https://test-orchestrator.local",
+      apiKey: "operator-secret-key",
+      useMicroservices: false,
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    const scans = await client.listSastScans({ target_id: "target-workspace" });
+    expect(Array.isArray(scans)).toBe(true);
+    expect(scans).toHaveLength(1);
+    expect(scans[0]?.id).toBe("job_list_abc");
+    expect(scans[0]?.status).toBe("completed");
+  });
+
   // ==========================================================================
   // 6. Audit & Telemetry
   // ==========================================================================

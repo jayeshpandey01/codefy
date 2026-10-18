@@ -4,6 +4,7 @@ import type {
   SastPresignedUploadRequest,
   SastPresignedUploadResponse,
   SastScanDirectRequest,
+  SastScanListResponse,
   SastScanRepoRequest,
   SastToolCatalogResponse,
   SecurityStreamEvent,
@@ -138,6 +139,7 @@ export class SastClient {
   async submitPassiveScan(
     zipData: Blob | Buffer | Uint8Array,
     filename = "source.zip",
+    targetId?: string,
   ): Promise<SastCreateResponse> {
     const formData = new FormData();
     const blob =
@@ -145,6 +147,9 @@ export class SastClient {
         ? zipData
         : new Blob([zipData as unknown as BlobPart]);
     formData.append("file", blob, filename);
+    if (targetId) {
+      formData.append("target_id", targetId);
+    }
 
     return this.request("/v1/sast/scan", {
       method: "POST",
@@ -155,6 +160,7 @@ export class SastClient {
   async submitActiveScan(
     zipData: Blob | Buffer | Uint8Array,
     filename = "source.zip",
+    targetId?: string,
   ): Promise<SastCreateResponse> {
     const formData = new FormData();
     const blob =
@@ -162,11 +168,33 @@ export class SastClient {
         ? zipData
         : new Blob([zipData as unknown as BlobPart]);
     formData.append("file", blob, filename);
+    if (targetId) {
+      formData.append("target_id", targetId);
+    }
 
     return this.request("/v1/sast/scan/active", {
       method: "POST",
       body: formData,
     });
+  }
+
+  async listScans(params: {
+    target_id?: string;
+    limit?: number;
+    offset?: number;
+    mode?: string;
+    status?: string;
+  } = {}): Promise<SastScanListResponse> {
+    const searchParams = new URLSearchParams();
+    if (params.target_id) searchParams.set("target_id", params.target_id);
+    if (params.limit !== undefined) searchParams.set("limit", String(params.limit));
+    if (params.offset !== undefined) searchParams.set("offset", String(params.offset));
+    if (params.mode) searchParams.set("mode", params.mode);
+    if (params.status) searchParams.set("status", params.status);
+
+    const qs = searchParams.toString();
+    const path = `/v1/sast/scans${qs ? `?${qs}` : ""}`;
+    return this.request<SastScanListResponse>(path, { method: "GET" });
   }
 
   async requestUploadUrl(req: SastPresignedUploadRequest = {}): Promise<SastPresignedUploadResponse> {

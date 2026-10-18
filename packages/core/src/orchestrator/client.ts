@@ -964,15 +964,47 @@ export class ScanOrchestratorClient {
       for (const id of scanIds) scans.push(await getOne(id));
       return scans;
     }
+
     const params = { target_id: targetId, limit: 200 };
-    const listed = kind === "sast" ? await this.listSastScans(params) : await this.listScans(params);
+    let listed: ScanRead[] = [];
+    try {
+      const raw = kind === "sast" ? await this.listSastScans(params) : await this.listScans(params);
+      if (Array.isArray(raw)) {
+        listed = raw;
+      } else if (raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown[] }).items)) {
+        const items = (raw as { items: Record<string, unknown>[] }).items;
+        listed = items.map((item) => ({
+          id: String(item["job_id"] || item["id"] || ""),
+          target_id: String(item["target_id"] || targetId),
+          profile: String(item["profile"] || `${kind}-scan`),
+          status:
+            item["status"] === "completed"
+              ? "completed"
+              : item["status"] === "failed" || item["status"] === "expired"
+                ? "failed"
+                : "running",
+          controller_job_id: ((item["job_id"] || item["id"]) as string) || null,
+          failure_reason: (item["error_message"] as string) || null,
+          created_at: (item["created_at"] as string) || new Date().toISOString(),
+        }));
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `fetchScanStatuses batch query for target ${targetId} failed, falling back to individual lookups: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
     const wanted = new Set(scanIds);
-    const scans = listed.filter((scan) => wanted.has(scan.id));
+    const scans: ScanRead[] = Array.isArray(listed)
+      ? listed.filter((scan) => scan && wanted.has(scan.id))
+      : [];
     // Anything the list didn't return (e.g. pushed past the page by newer scans on
-    // the same target) is still fetched individually, so no scan is ever dropped.
+    // the same target, or missing target_id) is still fetched individually, so no scan is ever dropped.
     const seen = new Set(scans.map((scan) => scan.id));
     for (const id of scanIds) {
-      if (!seen.has(id)) scans.push(await getOne(id));
+      if (!seen.has(id)) {
+        scans.push(await getOne(id));
+      }
     }
     return scans;
   }
@@ -1055,31 +1087,51 @@ export class ScanOrchestratorClient {
         targetValue.startsWith("git@") ||
         targetValue.endsWith(".git");
 
+      const profile = scan.profile || "sast-semgrep";
+      const isActive =
+        profile === "sast-active" ||
+        profile.includes("active") ||
+        profile === "sast-deep";
+
       let jobId: string;
       if (isRepo) {
         const res = await this.sastClient.submitRepoScan({
           repo_url: targetValue,
-          mode: "passive",
+          target_id: scan.target_id,
+          mode: isActive ? "active" : "passive",
         });
         jobId = res.job_id;
       } else {
         let zipData: Uint8Array;
         try {
           const packaged = packageWorkspaceDirectory(targetValue);
-          zipData = packaged.zipData;
+          if (packaged.stats.includedFiles === 0) {
+            const dummyEntry = {
+              path: "README.md",
+              data: new TextEncoder().encode(
+                `# Codebase Scope: ${targetValue}\nScanned with Codefy SAST at ${new Date().toISOString()}`,
+              ),
+            };
+            zipData = buildZipArchive([dummyEntry]);
+          } else {
+            zipData = packaged.zipData;
+          }
         } catch {
           // If directory packaging is not possible in current environment, build a minimal valid zip archive
           const dummyEntry = {
             path: "README.md",
-            data: new TextEncoder().encode(`# Codebase Scope: ${targetValue}\nScanned with Codefy SAST`),
+            data: new TextEncoder().encode(
+              `# Codebase Scope: ${targetValue}\nScanned with Codefy SAST at ${new Date().toISOString()}`,
+            ),
           };
           zipData = buildZipArchive([dummyEntry]);
         }
-        const res = await this.sastClient.submitPassiveScan(zipData);
+        const res = isActive
+          ? await this.sastClient.submitActiveScan(zipData, "source.zip", scan.target_id)
+          : await this.sastClient.submitPassiveScan(zipData, "source.zip", scan.target_id);
         jobId = res.job_id;
       }
 
-      const profile = scan.profile || "sast-semgrep";
       this.scanMetaMap.set(jobId, {
         targetId: scan.target_id,
         profile,
@@ -1110,11 +1162,68 @@ export class ScanOrchestratorClient {
    * List SAST scans with optional filters & pagination (GET /v1/sast/scans)
    */
   async listSastScans(params?: ListSastScansParams): Promise<ScanRead[]> {
+    if (this.useMicroservices) {
+      try {
+        const res = await this.sastClient.listScans({
+          target_id: params?.target_id,
+          limit: params?.limit,
+          offset: params?.offset,
+          status: params?.status,
+        });
+        return res.items.map((job) => {
+          const meta = this.scanMetaMap.get(job.job_id);
+          const status: ScanStatus =
+            job.status === "completed"
+              ? "completed"
+              : job.status === "failed" || job.status === "expired"
+                ? "failed"
+                : "running";
+          return {
+            id: job.job_id,
+            target_id: meta?.targetId || job.target_id || params?.target_id || "target-source",
+            profile: meta?.profile || `sast-${job.mode || "scan"}`,
+            status,
+            controller_job_id: job.job_id,
+            failure_reason: job.error_message || null,
+            created_at: job.created_at || new Date().toISOString(),
+          };
+        });
+      } catch (err: unknown) {
+        this.logger.warn(
+          `listSastScans via microservice failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return [];
+      }
+    }
+
     const qs = buildQueryString(params as Record<string, unknown>);
-    return this.request<ScanRead[]>(`/v1/sast/scans${qs}`, {
+    const raw = await this.request<unknown>(`/v1/sast/scans${qs}`, {
       method: "GET",
       auth: "operator",
     });
+
+    if (Array.isArray(raw)) {
+      return raw as ScanRead[];
+    }
+    if (raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown[] }).items)) {
+      const items = (raw as { items: Record<string, unknown>[] }).items;
+      return items.map((item) => ({
+        id: String(item["job_id"] || item["id"] || ""),
+        target_id: String(item["target_id"] || params?.target_id || "target-source"),
+        profile: String(item["profile"] || `sast-${item["mode"] || "scan"}`),
+        status:
+          item["status"] === "completed"
+            ? "completed"
+            : item["status"] === "failed" || item["status"] === "expired"
+              ? "failed"
+              : "running",
+        controller_job_id: ((item["job_id"] || item["id"]) as string) || null,
+        failure_reason: (item["error_message"] as string) || null,
+        created_at: (item["created_at"] as string) || new Date().toISOString(),
+      }));
+    }
+
+    return [];
   }
 
   /**
@@ -1182,44 +1291,60 @@ export class ScanOrchestratorClient {
    */
   async getSastScanResult(scanId: string): Promise<ScanResultRead> {
     if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
-      const job = await this.sastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
+      try {
+        const job = await this.sastClient.getJob(scanId);
+        const meta = this.scanMetaMap.get(scanId);
 
-      const summary = {
-        total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
-        risk_summary: {
-          critical: job.summary?.critical ?? 0,
-          high: job.summary?.high ?? 0,
-          medium: job.summary?.medium ?? 0,
-          low: job.summary?.low ?? 0,
-          info: 0,
-          total: job.summary?.total_findings ?? job.findings.length,
-        },
-        findings: job.findings.map((f, i) => ({
-          id: f.id || `sast-${job.job_id}-${i + 1}`,
-          code: f.vulnerability_id || f.tool_name,
-          severity: f.severity,
-          title: f.title,
-          description: f.description || f.title,
-          evidence: {
-            file: f.file_path,
-            line: f.line_start,
-            detector: f.tool_name,
-            check_id: f.vulnerability_id,
-            cwe: f.cwe_id ? [f.cwe_id] : undefined,
+        const summary = {
+          total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+          risk_summary: {
+            critical: job.summary?.critical ?? 0,
+            high: job.summary?.high ?? 0,
+            medium: job.summary?.medium ?? 0,
+            low: job.summary?.low ?? 0,
+            info: 0,
+            total: job.summary?.total_findings ?? job.findings.length,
           },
-          remediation: f.remediation || undefined,
-        })),
-      };
+          findings: job.findings.map((f, i) => ({
+            id: f.id || `sast-${job.job_id}-${i + 1}`,
+            code: f.vulnerability_id || f.tool_name,
+            severity: f.severity,
+            title: f.title,
+            description: f.description || f.title,
+            evidence: {
+              file: f.file_path,
+              line: f.line_start,
+              detector: f.tool_name,
+              check_id: f.vulnerability_id,
+              cwe: f.cwe_id ? [f.cwe_id] : undefined,
+            },
+            remediation: f.remediation || undefined,
+          })),
+        };
 
-      return {
-        id: `result-${job.job_id}`,
-        scan_job_id: job.job_id,
-        summary,
-        created_at: job.created_at || new Date().toISOString(),
-        artifact: null,
-        error_logs: job.error_message || null,
-      };
+        return {
+          id: `result-${job.job_id}`,
+          scan_job_id: job.job_id,
+          summary,
+          created_at: job.created_at || new Date().toISOString(),
+          artifact: null,
+          error_logs: job.error_message || null,
+        };
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return {
+          id: `result-${scanId}`,
+          scan_job_id: scanId,
+          summary: {
+            total_rules_evaluated: 0,
+            risk_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 },
+            findings: [],
+          },
+          created_at: new Date().toISOString(),
+          artifact: null,
+          error_logs: errMsg,
+        };
+      }
     }
 
     return this.request<ScanResultRead>(
@@ -1257,10 +1382,27 @@ export class ScanOrchestratorClient {
    * List recent security audit events (GET /v1/audit-events)
    */
   async listAuditEvents(): Promise<AuditEventRead[]> {
-    return this.request<AuditEventRead[]>("/v1/audit-events", {
-      method: "GET",
-      auth: "admin",
-    });
+    try {
+      const res = await this.request<AuditEventRead[] | { items: AuditEventRead[] }>("/v1/audit-events", {
+        method: "GET",
+        auth: "admin",
+      });
+      if (Array.isArray(res)) return res;
+      if (
+        res &&
+        typeof res === "object" &&
+        "items" in res &&
+        Array.isArray((res as { items: AuditEventRead[] }).items)
+      ) {
+        return (res as { items: AuditEventRead[] }).items;
+      }
+      return [];
+    } catch (err: unknown) {
+      if (this.useMicroservices) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   // ============================================================================

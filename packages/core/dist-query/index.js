@@ -3726,23 +3726,40 @@ var SastClient = class {
   async getTools() {
     return this.request("/v1/tools", { method: "GET" }, false);
   }
-  async submitPassiveScan(zipData, filename = "source.zip") {
+  async submitPassiveScan(zipData, filename = "source.zip", targetId) {
     const formData = new FormData();
     const blob = zipData instanceof Blob ? zipData : new Blob([zipData]);
     formData.append("file", blob, filename);
+    if (targetId) {
+      formData.append("target_id", targetId);
+    }
     return this.request("/v1/sast/scan", {
       method: "POST",
       body: formData
     });
   }
-  async submitActiveScan(zipData, filename = "source.zip") {
+  async submitActiveScan(zipData, filename = "source.zip", targetId) {
     const formData = new FormData();
     const blob = zipData instanceof Blob ? zipData : new Blob([zipData]);
     formData.append("file", blob, filename);
+    if (targetId) {
+      formData.append("target_id", targetId);
+    }
     return this.request("/v1/sast/scan/active", {
       method: "POST",
       body: formData
     });
+  }
+  async listScans(params = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.target_id) searchParams.set("target_id", params.target_id);
+    if (params.limit !== void 0) searchParams.set("limit", String(params.limit));
+    if (params.offset !== void 0) searchParams.set("offset", String(params.offset));
+    if (params.mode) searchParams.set("mode", params.mode);
+    if (params.status) searchParams.set("status", params.status);
+    const qs = searchParams.toString();
+    const path = `/v1/sast/scans${qs ? `?${qs}` : ""}`;
+    return this.request(path, { method: "GET" });
   }
   async requestUploadUrl(req = {}) {
     return this.request("/v1/sast/scan/upload-url", {
@@ -4724,6 +4741,20 @@ function packageWorkspaceDirectory(rootDir, options = {}) {
     }
   }
   walk(rootDir);
+  if (entries.length === 0) {
+    const stub = {
+      path: "README.md",
+      data: new TextEncoder().encode(
+        `# Codefy SAST Target Workspace
+Target Path: ${rootDir}
+Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`
+      )
+    };
+    entries.push(stub);
+    stats.includedFiles = 1;
+    stats.totalFiles = Math.max(stats.totalFiles, 1);
+    stats.uncompressedBytes += stub.data.length;
+  }
   const zipData = buildZipArchive(entries);
   stats.compressedBytes = zipData.length;
   return { zipData, stats };
@@ -5509,12 +5540,35 @@ var ScanOrchestratorClient = class {
       return scans2;
     }
     const params = { target_id: targetId, limit: 200 };
-    const listed = kind === "sast" ? await this.listSastScans(params) : await this.listScans(params);
+    let listed = [];
+    try {
+      const raw = kind === "sast" ? await this.listSastScans(params) : await this.listScans(params);
+      if (Array.isArray(raw)) {
+        listed = raw;
+      } else if (raw && typeof raw === "object" && Array.isArray(raw.items)) {
+        const items = raw.items;
+        listed = items.map((item) => ({
+          id: String(item["job_id"] || item["id"] || ""),
+          target_id: String(item["target_id"] || targetId),
+          profile: String(item["profile"] || `${kind}-scan`),
+          status: item["status"] === "completed" ? "completed" : item["status"] === "failed" || item["status"] === "expired" ? "failed" : "running",
+          controller_job_id: item["job_id"] || item["id"] || null,
+          failure_reason: item["error_message"] || null,
+          created_at: item["created_at"] || (/* @__PURE__ */ new Date()).toISOString()
+        }));
+      }
+    } catch (err) {
+      this.logger.warn(
+        `fetchScanStatuses batch query for target ${targetId} failed, falling back to individual lookups: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     const wanted = new Set(scanIds);
-    const scans = listed.filter((scan) => wanted.has(scan.id));
+    const scans = Array.isArray(listed) ? listed.filter((scan) => scan && wanted.has(scan.id)) : [];
     const seen = new Set(scans.map((scan) => scan.id));
     for (const id of scanIds) {
-      if (!seen.has(id)) scans.push(await getOne(id));
+      if (!seen.has(id)) {
+        scans.push(await getOne(id));
+      }
     }
     return scans;
   }
@@ -5580,30 +5634,45 @@ var ScanOrchestratorClient = class {
       const target = this.targetMap.get(scan.target_id);
       const targetValue = target?.value || scan.target_id;
       const isRepo = targetValue.startsWith("http://") || targetValue.startsWith("https://") || targetValue.startsWith("git@") || targetValue.endsWith(".git");
+      const profile = scan.profile || "sast-semgrep";
+      const isActive = profile === "sast-active" || profile.includes("active") || profile === "sast-deep";
       let jobId;
       if (isRepo) {
         const res = await this.sastClient.submitRepoScan({
           repo_url: targetValue,
-          mode: "passive"
+          target_id: scan.target_id,
+          mode: isActive ? "active" : "passive"
         });
         jobId = res.job_id;
       } else {
         let zipData;
         try {
           const packaged = packageWorkspaceDirectory(targetValue);
-          zipData = packaged.zipData;
+          if (packaged.stats.includedFiles === 0) {
+            const dummyEntry = {
+              path: "README.md",
+              data: new TextEncoder().encode(
+                `# Codebase Scope: ${targetValue}
+Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
+              )
+            };
+            zipData = buildZipArchive([dummyEntry]);
+          } else {
+            zipData = packaged.zipData;
+          }
         } catch {
           const dummyEntry = {
             path: "README.md",
-            data: new TextEncoder().encode(`# Codebase Scope: ${targetValue}
-Scanned with Codefy SAST`)
+            data: new TextEncoder().encode(
+              `# Codebase Scope: ${targetValue}
+Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
+            )
           };
           zipData = buildZipArchive([dummyEntry]);
         }
-        const res = await this.sastClient.submitPassiveScan(zipData);
+        const res = isActive ? await this.sastClient.submitActiveScan(zipData, "source.zip", scan.target_id) : await this.sastClient.submitPassiveScan(zipData, "source.zip", scan.target_id);
         jobId = res.job_id;
       }
-      const profile = scan.profile || "sast-semgrep";
       this.scanMetaMap.set(jobId, {
         targetId: scan.target_id,
         profile,
@@ -5631,11 +5700,55 @@ Scanned with Codefy SAST`)
    * List SAST scans with optional filters & pagination (GET /v1/sast/scans)
    */
   async listSastScans(params) {
+    if (this.useMicroservices) {
+      try {
+        const res = await this.sastClient.listScans({
+          target_id: params?.target_id,
+          limit: params?.limit,
+          offset: params?.offset,
+          status: params?.status
+        });
+        return res.items.map((job) => {
+          const meta = this.scanMetaMap.get(job.job_id);
+          const status = job.status === "completed" ? "completed" : job.status === "failed" || job.status === "expired" ? "failed" : "running";
+          return {
+            id: job.job_id,
+            target_id: meta?.targetId || job.target_id || params?.target_id || "target-source",
+            profile: meta?.profile || `sast-${job.mode || "scan"}`,
+            status,
+            controller_job_id: job.job_id,
+            failure_reason: job.error_message || null,
+            created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString()
+          };
+        });
+      } catch (err) {
+        this.logger.warn(
+          `listSastScans via microservice failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+        return [];
+      }
+    }
     const qs = buildQueryString(params);
-    return this.request(`/v1/sast/scans${qs}`, {
+    const raw = await this.request(`/v1/sast/scans${qs}`, {
       method: "GET",
       auth: "operator"
     });
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+    if (raw && typeof raw === "object" && Array.isArray(raw.items)) {
+      const items = raw.items;
+      return items.map((item) => ({
+        id: String(item["job_id"] || item["id"] || ""),
+        target_id: String(item["target_id"] || params?.target_id || "target-source"),
+        profile: String(item["profile"] || `sast-${item["mode"] || "scan"}`),
+        status: item["status"] === "completed" ? "completed" : item["status"] === "failed" || item["status"] === "expired" ? "failed" : "running",
+        controller_job_id: item["job_id"] || item["id"] || null,
+        failure_reason: item["error_message"] || null,
+        created_at: item["created_at"] || (/* @__PURE__ */ new Date()).toISOString()
+      }));
+    }
+    return [];
   }
   /**
    * Retrieve the status of a SAST scan job (GET /v1/sast/scans/{scan_id})
@@ -5692,42 +5805,58 @@ Scanned with Codefy SAST`)
    */
   async getSastScanResult(scanId) {
     if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
-      const job = await this.sastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
-      const summary = {
-        total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
-        risk_summary: {
-          critical: job.summary?.critical ?? 0,
-          high: job.summary?.high ?? 0,
-          medium: job.summary?.medium ?? 0,
-          low: job.summary?.low ?? 0,
-          info: 0,
-          total: job.summary?.total_findings ?? job.findings.length
-        },
-        findings: job.findings.map((f, i) => ({
-          id: f.id || `sast-${job.job_id}-${i + 1}`,
-          code: f.vulnerability_id || f.tool_name,
-          severity: f.severity,
-          title: f.title,
-          description: f.description || f.title,
-          evidence: {
-            file: f.file_path,
-            line: f.line_start,
-            detector: f.tool_name,
-            check_id: f.vulnerability_id,
-            cwe: f.cwe_id ? [f.cwe_id] : void 0
+      try {
+        const job = await this.sastClient.getJob(scanId);
+        const meta = this.scanMetaMap.get(scanId);
+        const summary = {
+          total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+          risk_summary: {
+            critical: job.summary?.critical ?? 0,
+            high: job.summary?.high ?? 0,
+            medium: job.summary?.medium ?? 0,
+            low: job.summary?.low ?? 0,
+            info: 0,
+            total: job.summary?.total_findings ?? job.findings.length
           },
-          remediation: f.remediation || void 0
-        }))
-      };
-      return {
-        id: `result-${job.job_id}`,
-        scan_job_id: job.job_id,
-        summary,
-        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString(),
-        artifact: null,
-        error_logs: job.error_message || null
-      };
+          findings: job.findings.map((f, i) => ({
+            id: f.id || `sast-${job.job_id}-${i + 1}`,
+            code: f.vulnerability_id || f.tool_name,
+            severity: f.severity,
+            title: f.title,
+            description: f.description || f.title,
+            evidence: {
+              file: f.file_path,
+              line: f.line_start,
+              detector: f.tool_name,
+              check_id: f.vulnerability_id,
+              cwe: f.cwe_id ? [f.cwe_id] : void 0
+            },
+            remediation: f.remediation || void 0
+          }))
+        };
+        return {
+          id: `result-${job.job_id}`,
+          scan_job_id: job.job_id,
+          summary,
+          created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+          artifact: null,
+          error_logs: job.error_message || null
+        };
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return {
+          id: `result-${scanId}`,
+          scan_job_id: scanId,
+          summary: {
+            total_rules_evaluated: 0,
+            risk_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 },
+            findings: []
+          },
+          created_at: (/* @__PURE__ */ new Date()).toISOString(),
+          artifact: null,
+          error_logs: errMsg
+        };
+      }
     }
     return this.request(
       `/v1/sast/scans/${encodeURIComponent(scanId)}/result`,
@@ -5758,10 +5887,22 @@ Scanned with Codefy SAST`)
    * List recent security audit events (GET /v1/audit-events)
    */
   async listAuditEvents() {
-    return this.request("/v1/audit-events", {
-      method: "GET",
-      auth: "admin"
-    });
+    try {
+      const res = await this.request("/v1/audit-events", {
+        method: "GET",
+        auth: "admin"
+      });
+      if (Array.isArray(res)) return res;
+      if (res && typeof res === "object" && "items" in res && Array.isArray(res.items)) {
+        return res.items;
+      }
+      return [];
+    } catch (err) {
+      if (this.useMicroservices) {
+        return [];
+      }
+      throw err;
+    }
   }
   // ============================================================================
   // 6. Dashboard & Statistics Endpoints (Operator / Admin)

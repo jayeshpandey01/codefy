@@ -136,4 +136,74 @@ describe("pollScansUntilComplete", () => {
       vi.restoreAllMocks();
     }
   });
+
+  it("handles paginated { items: [...] } object response during batch polling without throwing a.filter", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("/v1/sast/scans?") || url.includes("/v1/scans?")) {
+        return jsonResponse({
+          items: [
+            {
+              job_id: "scan-1",
+              target_id: "t-1",
+              mode: "passive",
+              status: "completed",
+              created_at: new Date().toISOString(),
+            },
+            {
+              job_id: "scan-2",
+              target_id: "t-1",
+              mode: "passive",
+              status: "completed",
+              created_at: new Date().toISOString(),
+            },
+          ],
+          total: 2,
+          limit: 200,
+          offset: 0,
+        });
+      }
+      if (url.includes("/result")) {
+        return jsonResponse(result("scan-1"));
+      }
+      return jsonResponse(scan("scan-1", "completed"));
+    });
+
+    const results = await client(fetchFn).pollScansUntilComplete(["scan-1", "scan-2"], {
+      kind: "sast",
+      targetId: "t-1",
+      intervalMs: 10,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0]?.scan.status).toBe("completed");
+    expect(results[1]?.scan.status).toBe("completed");
+  });
+
+  it("gracefully falls back to individual lookups if batch list returns 404", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes("/v1/sast/scans?") || url.includes("/v1/scans?")) {
+        return jsonResponse({ detail: "Not found" }, 404);
+      }
+      if (url.includes("/result")) {
+        return jsonResponse(result("scan-1"));
+      }
+      if (url.includes("/v1/sast/scans/scan-1") || url.includes("/v1/scans/scan-1")) {
+        return jsonResponse(scan("scan-1", "completed"));
+      }
+      if (url.includes("/v1/sast/scans/scan-2") || url.includes("/v1/scans/scan-2")) {
+        return jsonResponse(scan("scan-2", "completed"));
+      }
+      return jsonResponse({ detail: "Not found" }, 404);
+    });
+
+    const results = await client(fetchFn).pollScansUntilComplete(["scan-1", "scan-2"], {
+      kind: "sast",
+      targetId: "t-1",
+      intervalMs: 10,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0]?.scan.status).toBe("completed");
+    expect(results[1]?.scan.status).toBe("completed");
+  });
 });
