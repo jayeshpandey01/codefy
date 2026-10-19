@@ -16,7 +16,7 @@ import type {
   TaintStep,
   TargetRead,
 } from "@whoami/types";
-import { deduplicateFindings, toStructuredError } from "@whoami/types";
+import { deduplicateFindings, isSastProfile, toStructuredError } from "@whoami/types";
 
 import { ActionableErrorBanner } from "./ActionableErrorBanner.js";
 import {
@@ -290,7 +290,7 @@ export function convertScanResultToFindings(
     if (options?.isSast !== undefined) {
       isSastFinding = options.isSast;
     } else if (options?.profile) {
-      isSastFinding = options.profile.startsWith("sast-");
+      isSastFinding = isSastProfile(options.profile);
     } else if (hasDastIndicators) {
       isSastFinding = false;
     } else if (hasSastToolPrefix || hasSastEvidence) {
@@ -309,15 +309,30 @@ export function convertScanResultToFindings(
       const codeStr = item.code || "";
       const titleLowerSast = item.title.toLowerCase();
       const isTrufflehog =
-        codeStr.startsWith("TRUFFLEHOG") || Boolean(evidence?.detector);
+        codeStr.startsWith("TRUFFLEHOG") ||
+        titleLowerSast.includes("trufflehog") ||
+        (typeof evidence?.detector === "string" &&
+          evidence.detector.toLowerCase().includes("trufflehog"));
       const isGitleaks =
         codeStr.startsWith("GITLEAKS") ||
         titleLowerSast.includes("gitleaks") ||
+        (typeof evidence?.detector === "string" &&
+          evidence.detector.toLowerCase().includes("gitleaks")) ||
         codeStr.toLowerCase().includes("entropy");
-      const isJoern = codeStr.startsWith("JOERN") || Boolean(evidence?.flow);
+      const isJoern =
+        codeStr.startsWith("JOERN") ||
+        titleLowerSast.includes("joern") ||
+        Boolean(evidence?.flow);
       const hostOrPath =
         evidence?.file || evidence?.location || targetValue;
-      const isSecret = isTrufflehog || isGitleaks;
+      const isSecret =
+        isTrufflehog ||
+        isGitleaks ||
+        titleLowerSast.includes("secret") ||
+        titleLowerSast.includes("credential") ||
+        titleLowerSast.includes("token leak") ||
+        titleLowerSast.includes("api key") ||
+        titleLowerSast.includes("private key");
       const sastText = `${codeStr} ${titleLowerSast}`.toLowerCase();
       const sinkClass: SinkClass = isSecret
         ? "secret-exposure"
@@ -359,13 +374,13 @@ export function convertScanResultToFindings(
         {
           filePath: hostOrPath,
           line: typeof evidence?.line === "number" ? evidence.line : 1,
-          label: `Source: ${hostOrPath}`,
+          label: hostOrPath,
           role: "source" as const,
         },
         {
           filePath: hostOrPath,
           line: typeof evidence?.line === "number" ? evidence.line : 1,
-          label: `${item.title} (${codeStr})`,
+          label: codeStr ? `${item.title} (${codeStr})` : item.title,
           role: "sink" as const,
         },
       ];
@@ -468,16 +483,37 @@ export function convertScanResultToFindings(
         {
           filePath: probeTargetUrl,
           line: 1,
-          label: `Probe Target: ${targetValue}`,
+          label: targetValue,
           role: "source" as const,
         },
         {
           filePath: hostOrPath,
           line: 1,
-          label: `${item.title} (${rawCode || item.template_id || "vulnerability"})`,
+          label: rawCode || item.template_id ? `${item.title} (${rawCode || item.template_id})` : item.title,
           role: "sink" as const,
         },
       ];
+
+      // Provide intelligent fallback hint & fix if remote DAST didn't supply one
+      const fallbackHint =
+        titleLowerDast.includes("cors")
+          ? "Restrict Access-Control-Allow-Origin to trusted origins and avoid echoing request origin with credentials."
+          : titleLowerDast.includes("xss") || titleLowerDast.includes("cross-site")
+            ? "Contextually sanitize and HTML-encode all user input before reflecting it into HTTP responses."
+            : titleLowerDast.includes("sql")
+              ? "Replace string concatenation with parameterized prepared statements or query builder binds."
+              : titleLowerDast.includes("header") || titleLowerDast.includes("csp")
+                ? "Add missing security headers (Content-Security-Policy, X-Content-Type-Options, Strict-Transport-Security) in reverse proxy or middleware."
+                : `Harden endpoint configuration and sanitize all parameters for "${item.title}".`;
+
+      const fallbackFix =
+        titleLowerDast.includes("cors")
+          ? `// Express CORS configuration\napp.use(cors({\n  origin: ["https://trusted.domain.com"],\n  credentials: true,\n}));`
+          : titleLowerDast.includes("xss") || titleLowerDast.includes("cross-site")
+            ? `// Encode HTML entities before rendering\nconst sanitized = escapeHtml(userInput);\nres.send(\`<div>\${sanitized}</div>\`);`
+            : titleLowerDast.includes("header") || titleLowerDast.includes("csp")
+              ? `// Security Headers middleware\nres.setHeader("Content-Security-Policy", "default-src 'self'");\nres.setHeader("X-Content-Type-Options", "nosniff");\nres.setHeader("X-Frame-Options", "DENY");`
+              : undefined;
 
       findings.push({
         id: findingId,
@@ -491,8 +527,8 @@ export function convertScanResultToFindings(
         severity,
         status: "confirmed",
         cwe,
-        hint: item.remediation,
-        fix: item.remediation,
+        hint: item.remediation || fallbackHint,
+        fix: item.remediation || fallbackFix,
         trace: {
           sinkClass,
           steps: traceSteps,
@@ -929,43 +965,53 @@ export function RemoteScanPanel({
 
                   {/* Findings Table */}
                   {scanResult.summary.findings &&
-                    scanResult.summary.findings.length > 0 && (
-                      <div className="flex flex-col gap-1.5">
-                        <h4 className="text-xs font-semibold text-vscode-fg">
-                          Discovered Vulnerabilities:
-                        </h4>
-                        <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
-                          {scanResult.summary.findings.map((f, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-start justify-between rounded border border-vscode-border bg-vscode-bg p-2 text-xs hover:border-vscode-border transition"
-                            >
-                              <div>
-                                <div className="font-semibold text-vscode-fg">
-                                  {f.title}
-                                </div>
-                                {f.description && (
-                                  <div className="text-[11px] text-vscode-muted mt-0.5">
-                                    {f.description}
-                                  </div>
-                                )}
+                  scanResult.summary.findings.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      <h4 className="text-xs font-semibold text-vscode-fg">
+                        Discovered Vulnerabilities:
+                      </h4>
+                      <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
+                        {scanResult.summary.findings.map((f, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-start justify-between rounded border border-vscode-border bg-vscode-bg p-2 text-xs hover:border-vscode-border transition"
+                          >
+                            <div>
+                              <div className="font-semibold text-vscode-fg">
+                                {f.title}
                               </div>
-                              <span
-                                className={`rounded border px-1.5 py-0.2 text-[10px] font-semibold uppercase tracking-wider shrink-0 ml-2 ${
-                                  f.severity === "critical"
-                                    ? "border-[#BE1100] bg-[#5A1D1D] text-severity-critical"
-                                    : f.severity === "high"
-                                      ? "border-severity-high/50 bg-severity-high-bg text-severity-high"
-                                      : "border-vscode-focus/50 bg-vscode-card-selected text-severity-medium"
-                                }`}
-                              >
-                                {f.severity}
-                              </span>
+                              {f.description && (
+                                <div className="text-[11px] text-vscode-muted mt-0.5">
+                                  {f.description}
+                                </div>
+                              )}
                             </div>
-                          ))}
-                        </div>
+                            <span
+                              className={`rounded border px-1.5 py-0.2 text-[10px] font-semibold uppercase tracking-wider shrink-0 ml-2 ${
+                                f.severity === "critical"
+                                  ? "border-[#BE1100] bg-[#5A1D1D] text-severity-critical"
+                                  : f.severity === "high"
+                                    ? "border-severity-high/50 bg-severity-high-bg text-severity-high"
+                                    : "border-vscode-focus/50 bg-vscode-card-selected text-severity-medium"
+                              }`}
+                            >
+                              {f.severity}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
+                  ) : (
+                    <div className="rounded border border-vscode-border bg-vscode-bg p-4 text-center">
+                      <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-severity-low mb-1">
+                        <ShieldCheckIcon size={16} />
+                        <span>No Vulnerabilities Detected</span>
+                      </div>
+                      <p className="text-[11px] text-vscode-muted">
+                        All security checks passed cleanly for target &ldquo;{targetValue}&rdquo;.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

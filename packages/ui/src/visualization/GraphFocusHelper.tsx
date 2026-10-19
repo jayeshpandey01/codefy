@@ -14,7 +14,6 @@ export function GraphFocusHelper({ targetNodeId }: GraphFocusHelperProps): null 
   const lastTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!targetNodeId || targetNodeId === lastTargetRef.current) return;
     if (!targetNodeId) {
       lastTargetRef.current = null;
       return;

@@ -1,13 +1,14 @@
-import type {
-  DastJobDetailResponse,
-  Finding,
-  RemoteFindingSummary,
-  SastFindingEvidence,
-  SastFindingSummary,
-  SastJobDetailResponse,
-  ScanResultRead,
-  SinkClass,
-  TaintStep,
+import {
+  type DastJobDetailResponse,
+  type Finding,
+  type RemoteFindingSummary,
+  type SastFindingEvidence,
+  type SastFindingSummary,
+  type SastJobDetailResponse,
+  type ScanResultRead,
+  type SinkClass,
+  type TaintStep,
+  isSastProfile,
 } from "@whoami/types";
 
 function mapSeverity(rawSeverity?: string): Finding["severity"] {
@@ -203,7 +204,7 @@ export function normalizeRemoteFindings(
     if (options?.isSast !== undefined) {
       isSastFinding = options.isSast;
     } else if (options?.profile) {
-      isSastFinding = options.profile.startsWith("sast-");
+      isSastFinding = isSastProfile(options.profile);
     } else if (hasDastIndicators) {
       isSastFinding = false;
     } else if (hasSastToolPrefix || hasSastEvidence) {
@@ -223,19 +224,44 @@ export function normalizeRemoteFindings(
           : undefined;
 
       const codeStr = item.code || "";
-      const isJoern = codeStr.startsWith("JOERN") || Boolean(evidence?.flow);
+      const titleLowerSast = (item.title || "").toLowerCase();
+      const isJoern =
+        codeStr.startsWith("JOERN") ||
+        titleLowerSast.includes("joern") ||
+        Boolean(evidence?.flow);
       const isTrufflehog =
-        codeStr.startsWith("TRUFFLEHOG") || Boolean(evidence?.detector);
+        codeStr.startsWith("TRUFFLEHOG") ||
+        titleLowerSast.includes("trufflehog") ||
+        (typeof evidence?.detector === "string" &&
+          evidence.detector.toLowerCase().includes("trufflehog"));
       const isGitleaks =
         codeStr.startsWith("GITLEAKS") ||
-        item.title.toLowerCase().includes("gitleaks") ||
+        titleLowerSast.includes("gitleaks") ||
+        (typeof evidence?.detector === "string" &&
+          evidence.detector.toLowerCase().includes("gitleaks")) ||
         codeStr.toLowerCase().includes("entropy");
       const isCodeql =
         codeStr.startsWith("CODEQL") ||
-        item.title.toLowerCase().includes("codeql");
-      const isSemgrep = codeStr.startsWith("SEMGREP") || Boolean(evidence?.check_id);
+        titleLowerSast.includes("codeql");
+      const isSemgrep =
+        codeStr.startsWith("SEMGREP") ||
+        titleLowerSast.includes("semgrep") ||
+        (typeof evidence?.detector === "string" &&
+          evidence.detector.toLowerCase().includes("semgrep")) ||
+        Boolean(evidence?.check_id);
 
-      const sinkClass = detectSinkClass(item.title, item.description, codeStr);
+      const isSecret =
+        isTrufflehog ||
+        isGitleaks ||
+        titleLowerSast.includes("secret") ||
+        titleLowerSast.includes("credential") ||
+        titleLowerSast.includes("token leak") ||
+        titleLowerSast.includes("api key") ||
+        titleLowerSast.includes("private key");
+
+      const sinkClass = isSecret
+        ? "secret-exposure"
+        : detectSinkClass(item.title, item.description, codeStr);
       const cwe =
         extractCwe(evidence?.cwe) ||
         (sinkClass === "sql-injection"
@@ -345,11 +371,11 @@ export function normalizeRemoteFindings(
 
       findings.push({
         id: findingId,
-        ruleId: `remote-${slugify(codeStr || item.title)}`,
+        ruleId: `remote-${slugify(codeStr || item.title || "finding")}`,
         status: "confirmed",
         severity,
-        title: item.title,
-        description: item.description,
+        title: item.title || codeStr || "Security Finding",
+        description: item.description || item.title || "Security finding detected by SAST engine",
         cwe,
         code: codeStr,
         scope: isTrufflehog || isGitleaks ? "secrets" : "code",
@@ -391,23 +417,26 @@ export function normalizeRemoteFindings(
       const traceSteps: TaintStep[] = [
         {
           role: "source",
-          label: `Target Scope: ${targetValue}`,
+          label: targetValue,
           filePath: hostOrPath,
           line: 1,
         },
         {
           role: "sanitizer",
-          label: `Scanner Probe: ${item.title}`,
+          label: item.title,
           filePath: hostOrPath,
           line: 1,
         },
         {
           role: "sink",
-          label: `Vulnerable Endpoint: ${hostOrPath}`,
+          label: hostOrPath,
           filePath: hostOrPath,
           line: 1,
         },
       ];
+
+      const remediationText = (item as unknown as { remediation?: string; solution?: string }).remediation ||
+        (item as unknown as { remediation?: string; solution?: string }).solution;
 
       findings.push({
         id: findingId,
@@ -419,6 +448,8 @@ export function normalizeRemoteFindings(
         cwe,
         code: rawCode || item.template_id || "remote_vuln",
         scope: "endpoint",
+        hint: remediationText || deriveDastRemediation(item.title, cwe, sinkClass),
+        fix: remediationText || deriveDastFix(item.title, cwe, sinkClass),
         trace: {
           steps: traceSteps,
           sinkClass,
@@ -504,7 +535,8 @@ export function normalizeSastJobFindings(
       description: f.description || f.title,
       cwe,
       scope: "orchestrator",
-      remediation: f.remediation || undefined,
+      hint: f.remediation || (f as unknown as { solution?: string }).solution || undefined,
+      fix: f.remediation || (f as unknown as { solution?: string }).solution || undefined,
       trace: {
         steps: traceSteps,
         sinkClass,
@@ -520,8 +552,10 @@ export function normalizeDastJobFindings(
 ): Finding[] {
   const createdAt = job.created_at || new Date().toISOString();
   const target = job.target_url || targetUrl;
-  return job.findings.map((f, i) => {
-    const findingId = `dast-${job.job_id}-${f.fingerprint.slice(0, 8)}-${i + 1}`;
+  const rawFindings = Array.isArray(job.findings) ? job.findings : [];
+  return rawFindings.map((f, i) => {
+    const fp = f.fingerprint ? f.fingerprint.slice(0, 8) : String(i + 1);
+    const findingId = `dast-${job.job_id}-${fp}-${i + 1}`;
     const severity = mapSeverity(f.severity);
     const sinkClass = detectSinkClass(f.title, f.rule_id || "", f.owasp_category || "");
     const cwe = extractCwe(f.cwe_id ?? undefined) || "CWE-200";
@@ -530,17 +564,19 @@ export function normalizeDastJobFindings(
     const traceSteps: TaintStep[] = [
       {
         role: "source",
-        label: `Target URL: ${url}`,
+        label: url,
         filePath: url,
         line: 1,
       },
       {
         role: "sink",
-        label: `${f.title} [${f.tool_name}]${f.parameter ? ` (param: ${f.parameter})` : ""}`,
+        label: f.parameter ? `${f.title} (${f.parameter})` : f.title,
         filePath: url,
         line: 1,
       },
     ];
+
+    const remediation = f.remediation || (f as unknown as { solution?: string }).solution;
 
     return {
       id: findingId,
@@ -550,8 +586,9 @@ export function normalizeDastJobFindings(
       title: f.title,
       description: `${f.title} detected on ${url}${f.parameter ? ` (parameter: ${f.parameter})` : ""}`,
       cwe,
-      scope: "orchestrator",
-      remediation: f.remediation || undefined,
+      scope: "endpoint",
+      hint: remediation || deriveDastRemediation(f.title, cwe, sinkClass),
+      fix: remediation || deriveDastFix(f.title, cwe, sinkClass),
       trace: {
         steps: traceSteps,
         sinkClass,
@@ -559,6 +596,52 @@ export function normalizeDastJobFindings(
       createdAt,
     };
   });
+}
+
+export function deriveDastRemediation(title: string, cwe?: string, sinkClass?: SinkClass): string {
+  const lower = (title || "").toLowerCase();
+  if (lower.includes("cors") || cwe === "CWE-942") {
+    return "Restrict the Access-Control-Allow-Origin response header to trusted, explicit domains instead of '*' or reflecting origin with credentials.";
+  }
+  if (lower.includes("xss") || lower.includes("cross-site") || cwe === "CWE-79") {
+    return "Sanitize and contextual HTML-encode untrusted inputs before reflecting them in responses. Apply a strict Content-Security-Policy.";
+  }
+  if (lower.includes("sql") || cwe === "CWE-89") {
+    return "Use parameterized queries, prepared statements, or ORM abstractions instead of concatenating untrusted inputs into SQL strings.";
+  }
+  if (lower.includes("header") || lower.includes("csp") || lower.includes("hsts") || cwe === "CWE-16") {
+    return "Configure essential HTTP security response headers (Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options).";
+  }
+  if (lower.includes("crlf") || cwe === "CWE-113") {
+    return "Sanitize all user inputs before adding them to HTTP headers by stripping carriage return (\\r) and newline (\\n) characters.";
+  }
+  if (lower.includes("traversal") || cwe === "CWE-22") {
+    return "Validate user-supplied filenames and paths against an allowlist, resolving to canonical absolute paths within an allowed base directory.";
+  }
+  if (lower.includes("ssrf") || sinkClass === "ssrf") {
+    return "Validate and whitelist destination hostnames, schemes, and ports before issuing outbound HTTP requests from backend services.";
+  }
+  return `Review and harden endpoint configuration for "${title}". Sanitize request parameters and enforce authentication and least privilege.`;
+}
+
+export function deriveDastFix(title: string, cwe?: string, _sinkClass?: SinkClass): string | undefined {
+  const lower = (title || "").toLowerCase();
+  if (lower.includes("cors") || cwe === "CWE-942") {
+    return `// Express CORS configuration\napp.use(cors({\n  origin: ["https://trusted.domain.com"],\n  credentials: true,\n}));`;
+  }
+  if (lower.includes("xss") || lower.includes("cross-site") || cwe === "CWE-79") {
+    return `// Contextual output encoding\nconst sanitized = escapeHtml(userInput);\nres.setHeader("Content-Type", "text/html; charset=utf-8");\nres.send(\`<div>\${sanitized}</div>\`);`;
+  }
+  if (lower.includes("sql") || cwe === "CWE-89") {
+    return `// Parameterized SQL query\nconst [rows] = await db.execute("SELECT * FROM accounts WHERE id = ?", [accountId]);`;
+  }
+  if (lower.includes("header") || lower.includes("csp") || lower.includes("hsts") || cwe === "CWE-16") {
+    return `// Security Headers middleware\nres.setHeader("Content-Security-Policy", "default-src 'self'");\nres.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");\nres.setHeader("X-Content-Type-Options", "nosniff");\nres.setHeader("X-Frame-Options", "DENY");`;
+  }
+  if (lower.includes("crlf") || cwe === "CWE-113") {
+    return `// Strip CRLF injection characters\nconst sanitizedHeader = userHeaderValue.replace(/[\\r\\n]/g, "");\nres.setHeader("X-Custom-Header", sanitizedHeader);`;
+  }
+  return undefined;
 }
 
 export const convertScanResultToFindings = normalizeRemoteFindings;

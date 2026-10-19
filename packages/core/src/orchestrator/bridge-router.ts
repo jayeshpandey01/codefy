@@ -1,5 +1,5 @@
 import type { BridgeMessage, BridgeMessageType } from "@whoami/types";
-import type { ScanOrchestratorClient } from "./client.js";
+import { ScanOrchestratorClient } from "./client.js";
 
 export const ORCHESTRATOR_REQUEST_TYPES: ReadonlySet<BridgeMessageType> = new Set([
   "register-target-request",
@@ -113,7 +113,9 @@ export async function handleOrchestratorMessage(
       return true;
     }
     case "poll-remote-scan-request": {
-      const { scan, result } = await client.pollScanUntilComplete(message.scanId);
+      const meta = ScanOrchestratorClient.getScanMeta(message.scanId);
+      const kind = message.kind ?? meta?.kind ?? "dast";
+      const { scan, result } = await client.pollScanUntilComplete(message.scanId, { kind });
       post({ type: "poll-remote-scan-result", scan, result, requestId });
       return true;
     }

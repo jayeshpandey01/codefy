@@ -90,6 +90,7 @@ import {
   setPreference,
   upsertWorkspace,
 } from "./db/index.js";
+import { readWorkspaceFromPath } from "./bridge/workspaceFs.js";
 
 
 type ScanStatus = "idle" | "scanning" | "error";
@@ -326,6 +327,25 @@ export function App(): ReactElement {
         }
         if (lastFolder && !selectedFolder) {
           setSelectedFolder(lastFolder);
+        }
+        if (sessions.length > 0 && sessions[0]?.id) {
+          try {
+            const latestSession = await getScanSessionWithFindings(sessions[0].id);
+            if (latestSession && latestSession.findings && latestSession.findings.length > 0 && mounted) {
+              const unique = deduplicateFindings(latestSession.findings);
+              setFindings(unique);
+              setSelectedFinding(unique[0]);
+              setShowFloatingDetail(true);
+              if (latestSession.mode) {
+                setScanMode(latestSession.mode as ScanMode);
+              }
+              if (latestSession.workspacePath) {
+                setSelectedFolder(latestSession.workspacePath);
+              }
+            }
+          } catch (restoreErr) {
+            console.warn("[WhoAmI App] Failed to restore latest scan session findings on mount:", restoreErr);
+          }
         }
       } catch (err) {
         console.warn("[WhoAmI App] Failed to initialize DB state:", err);
@@ -669,6 +689,7 @@ export function App(): ReactElement {
 
       try {
         const isSastTarget = profiles.some((p) => isSastProfile(p));
+        setScanMode(isSastTarget ? "cloud-sast" : "orchestrator");
         const regRes = await bridge.request<
           Extract<BridgeMessage, { type: "register-target-request" }>,
           Extract<BridgeMessage, { type: "register-target-result" }>
@@ -684,6 +705,28 @@ export function App(): ReactElement {
           requestId: `reg-${Date.now()}`,
         }, ORCHESTRATOR_REQUEST_TIMEOUT_MS);
 
+        let filesToUpload: Array<{ path: string; content: string }> | undefined;
+        if (
+          isSastTarget &&
+          !target.startsWith("http://") &&
+          !target.startsWith("https://") &&
+          !target.startsWith("git@")
+        ) {
+          try {
+            const ws = await readWorkspaceFromPath(target);
+            if (ws && ws.files.length > 0) {
+              filesToUpload = ws.files.map((f) => ({
+                path: f.path.startsWith(target)
+                  ? f.path.slice(target.length).replace(/^[/\\]+/, "")
+                  : f.path,
+                content: f.content,
+              }));
+            }
+          } catch {
+            // Traversal fallback
+          }
+        }
+
         const allNewFindings: Finding[] = [];
 
         for (let i = 0; i < profiles.length; i++) {
@@ -692,7 +735,7 @@ export function App(): ReactElement {
 
           setOrchestratorProgress({
             currentTask: `Running ${profile}…`,
-            completed: i,
+            completed: i + 1,
             total: profiles.length,
           });
 
@@ -707,6 +750,8 @@ export function App(): ReactElement {
               scan: {
                 target_id: regRes.target.id,
                 profile: profile as SastProfile,
+                workspace_path: target,
+                files: filesToUpload,
               },
               requestId: `sub-sast-${Date.now()}`,
             }, ORCHESTRATOR_REQUEST_TIMEOUT_MS);
@@ -765,26 +810,33 @@ export function App(): ReactElement {
           total: profiles.length,
         });
 
+        // Dynamically record orchestrator/cloud SAST scan session in local database
+        const sessionId = `scan-orchestrator-${Date.now()}`;
+        const sessionRecord: ScanSessionEntry = {
+          id: sessionId,
+          workspacePath: target,
+          startedAt: Date.now() - 5000,
+          finishedAt: Date.now(),
+          mode: profiles.some((p) => isSastProfile(p)) ? "cloud-sast" : "orchestrator",
+          findingsCount: allNewFindings.length,
+        };
+        void saveScanSession(sessionRecord, allNewFindings).then(async () => {
+          const updated = await listScanSessions(100);
+          setScanSessions(updated);
+        });
+
         if (allNewFindings.length > 0) {
           setFindings((prev) => deduplicateFindings([...prev, ...allNewFindings]));
           setSelectedFinding(allNewFindings[0]);
           setShowFloatingDetail(true);
           openTab("graph");
-
-          // Dynamically record orchestrator scan session in local database
-          const sessionId = `scan-orchestrator-${Date.now()}`;
-          const sessionRecord: ScanSessionEntry = {
-            id: sessionId,
-            workspacePath: target,
-            startedAt: Date.now() - 5000,
-            finishedAt: Date.now(),
-            mode: "orchestrator",
-            findingsCount: allNewFindings.length,
-          };
-          void saveScanSession(sessionRecord, allNewFindings).then(async () => {
-            const updated = await listScanSessions(100);
-            setScanSessions(updated);
+        } else {
+          setOrchestratorProgress({
+            currentTask: `Scan Complete: 0 vulnerabilities found across ${profiles.length} task${profiles.length > 1 ? "s" : ""}`,
+            completed: profiles.length,
+            total: profiles.length,
           });
+          openTab("graph");
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -833,6 +885,7 @@ export function App(): ReactElement {
       profiles: (AllScanProfile | "secret-scan")[];
       ruleTags?: string[];
     }) => {
+      setScanMode("cloud-sast");
       handleRunOrchestratorScan({
         target: params.folderPath,
         profiles: params.profiles,
@@ -891,6 +944,9 @@ export function App(): ReactElement {
             setSelectedFolder(sessionData.workspacePath);
             void setPreference("last_folder", sessionData.workspacePath);
             void upsertWorkspace(sessionData.workspacePath);
+          }
+          if (sessionData.mode) {
+            setScanMode(sessionData.mode as ScanMode);
           }
           openTab("graph");
         }
@@ -1380,6 +1436,7 @@ export function App(): ReactElement {
                 <BlastRadiusGraphView
                   findings={findings}
                   workspaceGraph={architectureGraph}
+                  onNodeClick={handleNodeClick}
                   direction={layoutDirection}
                   pipelineMode={analysisPipelineMode}
                 />
@@ -1390,6 +1447,7 @@ export function App(): ReactElement {
                 <ControlFlowGraphView
                   finding={selectedFinding}
                   findings={findings}
+                  onNodeClick={handleNodeClick}
                   direction={layoutDirection}
                 />
               )}
@@ -1399,6 +1457,7 @@ export function App(): ReactElement {
                 <DependencySupplyChainGraphView
                   workspaceGraph={architectureGraph}
                   findings={findings}
+                  onNodeClick={handleNodeClick}
                   direction={layoutDirection}
                   pipelineMode={analysisPipelineMode}
                 />
@@ -1408,6 +1467,7 @@ export function App(): ReactElement {
               {activeTab === "remote" && (
                 <RemoteAttackSurfaceGraphView
                   findings={findings}
+                  onNodeClick={handleNodeClick}
                   direction={layoutDirection}
                   pipelineMode={analysisPipelineMode}
                 />

@@ -9,7 +9,7 @@ import type {
   SastToolCatalogResponse,
   SecurityStreamEvent,
 } from "@whoami/types";
-import { DEFAULT_SAST_SERVICE_URL } from "../orchestrator/constants.js";
+import { DEFAULT_SAST_SERVICE_URL, DEFAULT_CODEFY_JWT } from "../orchestrator/constants.js";
 
 export class SecurityServiceApiError extends Error {
   constructor(
@@ -49,15 +49,16 @@ export class SastClient {
 
   constructor(options: SastClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_SAST_SERVICE_URL).replace(/\/+$/, "");
-    const rawJwt = options.jwtToken?.trim();
-    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : undefined;
+    const envJwt = typeof process !== "undefined" ? process.env?.CODEFY_JWT : undefined;
+    const rawJwt = options.jwtToken?.trim() || envJwt || DEFAULT_CODEFY_JWT;
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : DEFAULT_CODEFY_JWT;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
 
   private getAuthHeader(): Record<string, string> {
-    const token = this.jwtToken;
+    const token = this.jwtToken || DEFAULT_CODEFY_JWT;
     if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
         "Authentication required: Please sign in to your Codefy account with your email and password to access cloud SAST services.",

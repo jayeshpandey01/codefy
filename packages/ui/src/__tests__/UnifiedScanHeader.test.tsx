@@ -240,4 +240,97 @@ describe("UnifiedScanHeader", () => {
     fireEvent.click(searchBtn);
     expect(handleOpenSearch).toHaveBeenCalledTimes(1);
   });
+
+  it("renders SAST engines dropdown with fixed scrollable height and All/Clear actions", () => {
+    render(
+      <UnifiedScanHeader
+        scanMode="cloud-sast"
+        currentFolderPath="/mock/cloud-project"
+      />,
+    );
+
+    // Open SAST dropdown
+    const sastDropdownBtn = screen.getByText(/SAST Active/);
+    fireEvent.click(sastDropdownBtn);
+
+    expect(screen.getByText("Cloud SAST Engines")).toBeTruthy();
+    expect(screen.getByText("Semgrep AST Rules")).toBeTruthy();
+
+    // Verify container has fixed height and overflow-y-auto class
+    const scrollContainer = screen.getByText("Semgrep AST Rules").closest(".overflow-y-auto");
+    expect(scrollContainer).toBeTruthy();
+    expect(scrollContainer?.className).toContain("max-h-56");
+    expect(scrollContainer?.className).toContain("overflow-y-auto");
+
+    // Test All and Clear buttons
+    const clearBtn = screen.getByRole("button", { name: "Clear" });
+    fireEvent.click(clearBtn);
+    expect(screen.getByText("0 SAST Active")).toBeTruthy();
+
+    const allBtn = screen.getByRole("button", { name: "All" });
+    fireEvent.click(allBtn);
+    expect(screen.getByText(/SAST Active/)).toBeTruthy();
+  });
+
+  it("displays Running (1/3) instead of tool name during SAST scan and has tool name in title", () => {
+    render(
+      <UnifiedScanHeader
+        scanMode="cloud-sast"
+        isCloudSastScanning={true}
+        cloudSastProgress={{
+          currentTask: "Running sast-joern…",
+          completed: 1,
+          total: 3,
+        }}
+      />,
+    );
+
+    // It should display 'Running (1/3)' and NOT 'Running sast-joern…'
+    expect(screen.getByText("Running (1/3)")).toBeTruthy();
+    expect(screen.queryByText("Running sast-joern…")).toBeNull();
+
+    // The tool name should still be accessible via title attribute for tooltip
+    const progressEl = screen.getByText("Running (1/3)");
+    expect(progressEl.getAttribute("title")).toBe("Running sast-joern…");
+  });
+
+  it("displays Running (1/3) instead of tool name during DAST scan and has tool name in title", () => {
+    render(
+      <UnifiedScanHeader
+        scanMode="orchestrator"
+        isOrchestratorScanning={true}
+        orchestratorProgress={{
+          currentTask: "Running recon…",
+          completed: 1,
+          total: 3,
+        }}
+      />,
+    );
+
+    // It should display 'Running (1/3)' and NOT 'Running recon… (1/3)'
+    expect(screen.getByText("Running (1/3)")).toBeTruthy();
+    expect(screen.queryByText("Running recon… (1/3)")).toBeNull();
+
+    // The tool name should still be accessible via title attribute for tooltip
+    const progressEl = screen.getByText("Running (1/3)");
+    expect(progressEl.getAttribute("title")).toBe("Running recon…");
+  });
+
+  it("isolates wheel events in DAST dropdown so it does not auto-close", () => {
+    render(<UnifiedScanHeader scanMode="orchestrator" />);
+
+    // Open DAST task dropdown
+    const taskDropdownBtn = screen.getByText(/Tasks Active/);
+    fireEvent.click(taskDropdownBtn);
+
+    expect(screen.getByText("Scan Task Profiles")).toBeTruthy();
+    const scrollContainer = screen.getByText("Fast Recon").closest(".overflow-y-auto") as HTMLElement;
+    expect(scrollContainer).toBeTruthy();
+
+    // Fire wheel event inside the scrollable container
+    fireEvent.wheel(scrollContainer, { deltaY: 50 });
+
+    // The dropdown should stay open
+    expect(screen.getByText("Scan Task Profiles")).toBeTruthy();
+  });
 });

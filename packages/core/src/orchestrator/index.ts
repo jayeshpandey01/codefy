@@ -2,6 +2,7 @@ export {
   DEFAULT_AUTH_SERVICE_URL,
   DEFAULT_SAST_SERVICE_URL,
   DEFAULT_DAST_SERVICE_URL,
+  DEFAULT_CODEFY_JWT,
 } from "./constants.js";
 export {
   ScanOrchestratorClient,
@@ -31,6 +32,8 @@ export {
   normalizeRemoteFindings,
   normalizeSastJobFindings,
   normalizeDastJobFindings,
+  deriveDastRemediation,
+  deriveDastFix,
 } from "./normalizer.js";
 export type { NormalizeRemoteFindingsOptions } from "./normalizer.js";
 export {

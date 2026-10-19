@@ -49,7 +49,6 @@ export function GraphZoomControls({
   }, [zoomOut]);
 
   const handleResetZoom = useCallback(() => {
-    zoomTo(1.0, { duration: GRAPH_ZOOM_TRANSITION_MS });
     zoomTo(GRAPH_DEFAULT_ZOOM, { duration: GRAPH_ZOOM_TRANSITION_MS });
   }, [zoomTo]);
 

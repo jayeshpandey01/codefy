@@ -33,17 +33,17 @@ export const ROLE_DIMENSIONS: Record<
   GraphNodeRole,
   { width: number; height: number }
 > = {
-  source: { width: 240, height: 68 },
-  sink: { width: 260, height: 72 },
-  sanitizer: { width: 240, height: 68 },
-  passthrough: { width: 240, height: 64 },
-  cluster: { width: 260, height: 48 },
+  source: { width: 230, height: 68 },
+  sink: { width: 240, height: 72 },
+  sanitizer: { width: 230, height: 68 },
+  passthrough: { width: 230, height: 64 },
+  cluster: { width: 250, height: 48 },
   annotation: { width: 260, height: 96 },
   group: { width: 340, height: 180 }, // Minimum fallback if empty
   boundary: { width: 380, height: 220 },
   asset: { width: 260, height: 72 },
   decision: { width: 240, height: 76 },
-  safe_exit: { width: 220, height: 56 },
+  safe_exit: { width: 230, height: 68 },
   package: { width: 240, height: 68 },
   endpoint: { width: 240, height: 64 },
   probe: { width: 240, height: 64 },

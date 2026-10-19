@@ -402,16 +402,24 @@ export function IssueTreeSidebar({
       sectionFilter === "target-dast" ||
       sectionFilter === "orchestrator"
     ) {
-      return dastFindings;
+      return dastFindings.length > 0
+        ? dastFindings
+        : orchestratorFindings.length > 0
+          ? orchestratorFindings
+          : findings;
     }
     if (sectionFilter === "cloud-sast") {
       const remoteSast = sastFindings.filter(
         (f) => f.id.startsWith("remote-") || f.ruleId.startsWith("remote-"),
       );
-      return remoteSast.length > 0 ? remoteSast : sastFindings;
+      return remoteSast.length > 0
+        ? remoteSast
+        : sastFindings.length > 0
+          ? sastFindings
+          : findings;
     }
     if (sectionFilter === "local" || sectionFilter === "local-offline") {
-      return localFindings.length > 0 ? localFindings : sastFindings;
+      return localFindings.length > 0 ? localFindings : findings;
     }
     return findings;
   }, [

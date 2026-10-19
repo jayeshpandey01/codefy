@@ -58,11 +58,17 @@ export const DecisionNode = memo(function DecisionNode({
         </div>
       )}
 
-      {/* Ingress handle (Top) */}
+      {/* Ingress handles (Top for DOWN layout, Left for RIGHT layout) */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
+        className="!h-2.5 !w-2.5 !border-vscode-bg !bg-severity-high"
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="target-left"
         className="!h-2.5 !w-2.5 !border-vscode-bg !bg-severity-high"
       />
 

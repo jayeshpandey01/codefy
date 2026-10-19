@@ -44,6 +44,18 @@ export function SourceNode(props: NodeProps): ReactElement {
           {data.label}
         </div>
         <Handle
+          type="target"
+          position={Position.Left}
+          id="left"
+          className="!bg-severity-medium !w-1.5 !h-1.5 !border-none"
+        />
+        <Handle
+          type="target"
+          position={Position.Top}
+          id="top"
+          className="!bg-severity-medium !w-1.5 !h-1.5 !border-none"
+        />
+        <Handle
           type="source"
           position={Position.Right}
           id="right"
@@ -110,6 +122,20 @@ export function SourceNode(props: NodeProps): ReactElement {
           {fileBasename}:{data.line}
         </span>
       </div>
+
+      {/* Target handles for inbound links from architecture/files */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className="!bg-severity-medium !w-2 !h-2 !border-none"
+      />
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
+        className="!bg-severity-medium !w-2 !h-2 !border-none"
+      />
 
       {/* Multi-directional handles (horizontal & vertical) */}
       <Handle

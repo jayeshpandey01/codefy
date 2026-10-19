@@ -34,10 +34,68 @@ import {
   DEFAULT_ADMIN_API_KEY,
   DEFAULT_SAST_SERVICE_URL,
   DEFAULT_DAST_SERVICE_URL,
+  DEFAULT_CODEFY_JWT,
 } from "./constants.js";
 import { generateControllerHmacHeaders } from "./hmac.js";
 
-export { DEFAULT_ORCHESTRATOR_URL, DEFAULT_OPERATOR_API_KEY, DEFAULT_ADMIN_API_KEY };
+export { DEFAULT_ORCHESTRATOR_URL, DEFAULT_OPERATOR_API_KEY, DEFAULT_ADMIN_API_KEY, DEFAULT_CODEFY_JWT };
+
+export const DAST_PROFILE_TO_TOOL_MAP: Record<string, { tool: string; mode: "passive" | "active" }> = {
+  recon: { tool: "httpx", mode: "passive" },
+  "web-discovery": { tool: "katana", mode: "passive" },
+  "network-portscan": { tool: "naabu", mode: "passive" },
+  "fast-portscan": { tool: "naabu", mode: "passive" },
+  "smart-portscan": { tool: "naabu", mode: "passive" },
+  "content-discovery": { tool: "ffuf", mode: "active" },
+  "deep-content-discovery": { tool: "ffuf", mode: "active" },
+  "web-crawl": { tool: "katana", mode: "passive" },
+  "vuln-assessment": { tool: "nuclei", mode: "active" },
+  "xss-scan": { tool: "dalfox", mode: "active" },
+  "dast-zap": { tool: "nuclei", mode: "active" },
+  "oob-interaction": { tool: "nuclei", mode: "active" },
+  "dns-recon": { tool: "dnsx", mode: "passive" },
+  "subdomain-takeover": { tool: "subfinder", mode: "passive" },
+  "waf-detect": { tool: "wafw00f", mode: "passive" },
+  "cors-audit": { tool: "cors-check", mode: "passive" },
+  "crlf-scan": { tool: "crlfuzz", mode: "active" },
+  "ssti-scan": { tool: "nuclei", mode: "active" },
+};
+
+export const DAST_ACTIVE_TOOLS = new Set<string>([
+  "nuclei",
+  "dalfox",
+  "crlfuzz",
+  "sqlmap",
+  "nikto",
+  "commix",
+  "ffuf",
+  "arjun",
+  "ssrf-detector",
+  "xxe-injector",
+  "jwt-tool",
+  "graphql-cop",
+  "api-fuzzer",
+  "auth-matrix",
+  "idor-tester",
+  "vuln-assessment",
+  "xss-scan",
+  "dast-zap",
+  "content-discovery",
+  "deep-content-discovery",
+  "crlf-scan",
+  "ssti-scan",
+]);
+
+export function resolveDastProfile(profile?: string | null): { tool?: string; mode: "passive" | "active" } {
+  if (!profile) return { mode: "passive" };
+  const p = profile.toLowerCase().trim();
+  const mapped = DAST_PROFILE_TO_TOOL_MAP[p];
+  if (mapped) {
+    return mapped;
+  }
+  const mode = DAST_ACTIVE_TOOLS.has(p) ? "active" : "passive";
+  return { tool: p, mode };
+}
 
 export interface PollScanOptions {
   /** Initial poll interval; polling backs off from here while nothing changes. */
@@ -46,6 +104,7 @@ export interface PollScanOptions {
   maxIntervalMs?: number;
   maxWaitMs?: number;
   onProgress?: (scan: ScanRead) => void;
+  kind?: "dast" | "sast";
 }
 
 export interface PollScansOptions extends Omit<PollScanOptions, "onProgress"> {
@@ -201,11 +260,20 @@ export class ScanOrchestratorClient {
   private readonly useMicroservices: boolean;
   private readonly sastClient: SastClient;
   private readonly dastClient: DastClient;
-  private readonly targetMap = new Map<string, TargetRead>();
-  private readonly scanMetaMap = new Map<
+  private static readonly targetMap = new Map<string, TargetRead>();
+  private static readonly scanMetaMap = new Map<
     string,
     { targetId: string; profile: string; targetValue: string; kind: "sast" | "dast" }
   >();
+
+  public static clearStateForTests(): void {
+    ScanOrchestratorClient.targetMap.clear();
+    ScanOrchestratorClient.scanMetaMap.clear();
+  }
+
+  public static getScanMeta(scanId: string): { targetId: string; profile: string; targetValue: string; kind: "sast" | "dast" } | undefined {
+    return ScanOrchestratorClient.scanMetaMap.get(scanId);
+  }
 
   constructor(config: OrchestratorClientConfig & { logger?: Logger } = {}) {
     const rawUrl = config.baseUrl || DEFAULT_ORCHESTRATOR_URL;
@@ -242,14 +310,14 @@ export class ScanOrchestratorClient {
       config.useMicroservices ?? (this.baseUrl === DEFAULT_ORCHESTRATOR_URL);
     this.sastClient = new SastClient({
       baseUrl: config.sastBaseUrl || DEFAULT_SAST_SERVICE_URL,
-      jwtToken: this.jwtToken,
+      jwtToken: this.jwtToken || DEFAULT_CODEFY_JWT,
       apiKey: this.apiKey,
       fetchImpl: this.fetchFn,
       timeoutMs: this.timeoutMs,
     });
     this.dastClient = new DastClient({
       baseUrl: config.dastBaseUrl || DEFAULT_DAST_SERVICE_URL,
-      jwtToken: this.jwtToken,
+      jwtToken: this.jwtToken || DEFAULT_CODEFY_JWT,
       apiKey: this.apiKey,
       fetchImpl: this.fetchFn,
       timeoutMs: this.timeoutMs,
@@ -629,7 +697,7 @@ export class ScanOrchestratorClient {
         value: targetPayload.value,
         created_at: new Date().toISOString(),
       };
-      this.targetMap.set(targetId, targetRead);
+      ScanOrchestratorClient.targetMap.set(targetId, targetRead);
       return targetRead;
     }
 
@@ -644,8 +712,8 @@ export class ScanOrchestratorClient {
    * List Registered Targets with pagination (GET /v1/targets)
    */
   async listTargets(params?: PaginationParams): Promise<TargetRead[]> {
-    if (this.useMicroservices && this.targetMap.size > 0) {
-      return Array.from(this.targetMap.values());
+    if (this.useMicroservices && ScanOrchestratorClient.targetMap.size > 0) {
+      return Array.from(ScanOrchestratorClient.targetMap.values());
     }
     const qs = buildQueryString(params as Record<string, unknown>);
     return this.request<TargetRead[]>(`/v1/targets${qs}`, {
@@ -659,7 +727,7 @@ export class ScanOrchestratorClient {
    */
   async getTarget(targetId: string): Promise<TargetRead> {
     if (this.useMicroservices) {
-      const local = this.targetMap.get(targetId);
+      const local = ScanOrchestratorClient.targetMap.get(targetId);
       if (local) return local;
     }
     return this.request<TargetRead>(`/v1/targets/${encodeURIComponent(targetId)}`, {
@@ -686,8 +754,10 @@ export class ScanOrchestratorClient {
           idempotencyKey,
         );
       }
-      const target = this.targetMap.get(scan.target_id);
-      const rawTarget = target?.value || scan.target_id;
+      const target = ScanOrchestratorClient.targetMap.get(scan.target_id);
+      const customUrl = (scan as { target_url?: string; target_value?: string }).target_url ||
+                        (scan as { target_url?: string; target_value?: string }).target_value;
+      const rawTarget = customUrl || target?.value || scan.target_id;
       const targetUrl = rawTarget.startsWith("http://") || rawTarget.startsWith("https://")
         ? rawTarget
         : `https://${rawTarget}`;
@@ -701,13 +771,14 @@ export class ScanOrchestratorClient {
         );
       }
 
+      const { tool, mode } = resolveDastProfile(scan.profile);
       const res = await this.dastClient.submitScan({
         target_url: targetUrl,
-        mode: "passive",
-        tools: scan.profile ? [scan.profile] : undefined,
+        mode,
+        tools: tool ? [tool] : undefined,
       });
 
-      this.scanMetaMap.set(res.job_id, {
+      ScanOrchestratorClient.scanMetaMap.set(res.job_id, {
         targetId: scan.target_id,
         profile: scan.profile,
         targetValue: targetUrl,
@@ -737,6 +808,57 @@ export class ScanOrchestratorClient {
    * List DAST scans with optional filters & pagination (GET /v1/scans)
    */
   async listScans(params?: ListScansParams): Promise<ScanRead[]> {
+    if (this.useMicroservices) {
+      try {
+        const res = await this.dastClient.listScans({
+          limit: params?.limit,
+          offset: params?.offset,
+        });
+        if (Array.isArray(res.items)) {
+          return res.items.map((job) => {
+            const meta = ScanOrchestratorClient.scanMetaMap.get(job.job_id);
+            const status: ScanStatus =
+              job.status === "completed"
+                ? "completed"
+                : job.status === "failed" || job.status === "cancelled"
+                  ? "failed"
+                  : "running";
+            return {
+              id: job.job_id,
+              target_id: meta?.targetId || params?.target_id || "target-dast",
+              profile: meta?.profile || "dast-scan",
+              status,
+              controller_job_id: job.job_id,
+              failure_reason: job.error_message || null,
+              created_at: job.created_at || new Date().toISOString(),
+            };
+          });
+        }
+      } catch (err: unknown) {
+        this.logger.debug(
+          `dastClient.listScans not available or failed, falling back to local scanMetaMap: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      const localScans: ScanRead[] = [];
+      for (const [jobId, meta] of ScanOrchestratorClient.scanMetaMap.entries()) {
+        if (meta.kind === "dast") {
+          if (!params?.target_id || meta.targetId === params.target_id) {
+            localScans.push({
+              id: jobId,
+              target_id: meta.targetId,
+              profile: meta.profile,
+              status: "running",
+              controller_job_id: jobId,
+              failure_reason: null,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+      return localScans;
+    }
+
     const qs = buildQueryString(params as Record<string, unknown>);
     return this.request<ScanRead[]>(`/v1/scans${qs}`, {
       method: "GET",
@@ -748,27 +870,43 @@ export class ScanOrchestratorClient {
    * Retrieve the status of a DAST scan job (GET /v1/scans/{scan_id})
    */
   async getScan(scanId: string): Promise<ScanRead> {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
-      const job = await this.dastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
-      const status: ScanStatus =
-        job.status === "completed"
-          ? "completed"
-          : job.status === "failed"
-            ? "failed"
-            : job.status === "cancelled"
-              ? "cancelled"
-              : "running";
+    if (this.useMicroservices && (scanId.startsWith("job_") || ScanOrchestratorClient.scanMetaMap.has(scanId))) {
+      try {
+        const job = await this.dastClient.getJob(scanId);
+        const meta = ScanOrchestratorClient.scanMetaMap.get(scanId);
+        const status: ScanStatus =
+          job.status === "completed"
+            ? "completed"
+            : job.status === "failed"
+              ? "failed"
+              : job.status === "cancelled"
+                ? "cancelled"
+                : "running";
 
-      return {
-        id: job.job_id,
-        target_id: meta?.targetId || "target-dast",
-        profile: meta?.profile || "dast-scan",
-        status,
-        controller_job_id: job.job_id,
-        failure_reason: job.error_message || null,
-        created_at: job.created_at || new Date().toISOString(),
-      };
+        return {
+          id: job.job_id,
+          target_id: meta?.targetId || "target-dast",
+          profile: meta?.profile || "dast-scan",
+          status,
+          controller_job_id: job.job_id,
+          failure_reason: job.error_message || null,
+          created_at: job.created_at || new Date().toISOString(),
+        };
+      } catch (err: unknown) {
+        const meta = ScanOrchestratorClient.scanMetaMap.get(scanId);
+        if (meta) {
+          return {
+            id: scanId,
+            target_id: meta.targetId,
+            profile: meta.profile,
+            status: "running",
+            controller_job_id: scanId,
+            failure_reason: err instanceof Error ? err.message : String(err),
+            created_at: new Date().toISOString(),
+          };
+        }
+        throw err;
+      }
     }
 
     return this.request<ScanRead>(`/v1/scans/${encodeURIComponent(scanId)}`, {
@@ -807,40 +945,66 @@ export class ScanOrchestratorClient {
    * Get the parsed results, summary, and artifacts of a DAST scan (GET /v1/scans/{scan_id}/result)
    */
   async getScanResult(scanId: string): Promise<ScanResultRead> {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
-      const job = await this.dastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
-      const targetUrl = meta?.targetValue || job.target_url || "target";
+    if (this.useMicroservices && (scanId.startsWith("job_") || ScanOrchestratorClient.scanMetaMap.has(scanId))) {
+      try {
+        const job = await this.dastClient.getJob(scanId);
+        const meta = ScanOrchestratorClient.scanMetaMap.get(scanId);
+        const targetUrl = meta?.targetValue || job.target_url || "target";
+        const rawFindings = Array.isArray(job.findings) ? job.findings : [];
+        const summaryObj = (job.summary && typeof job.summary === "object" ? job.summary : {}) as Record<string, unknown>;
+        const totalFindings = typeof summaryObj.total_findings === "number" ? summaryObj.total_findings : rawFindings.length;
 
-      const summary = {
-        total_rules_evaluated: (job.summary as DastJobSummary)?.total_findings ?? job.findings.length,
-        risk_summary: {
-          critical: (job.summary as DastJobSummary)?.critical ?? 0,
-          high: (job.summary as DastJobSummary)?.high ?? 0,
-          medium: (job.summary as DastJobSummary)?.medium ?? 0,
-          low: (job.summary as DastJobSummary)?.low ?? 0,
-          info: (job.summary as DastJobSummary)?.info ?? 0,
-          total: (job.summary as DastJobSummary)?.total_findings ?? job.findings.length,
-        },
-        findings: job.findings.map((f, i) => ({
-          title: f.title,
-          severity: f.severity,
-          description: f.remediation || f.title,
-          host: f.target_url || targetUrl,
-          template_id: f.rule_id || f.tool_name,
-          cwe: f.cwe_id || undefined,
-        })),
-        technologies: ((job.summary as Record<string, unknown>)?.technologies as string[]) || [],
-      };
+        const summary = {
+          total_rules_evaluated: totalFindings,
+          risk_summary: {
+            critical: typeof summaryObj.critical === "number" ? summaryObj.critical : 0,
+            high: typeof summaryObj.high === "number" ? summaryObj.high : 0,
+            medium: typeof summaryObj.medium === "number" ? summaryObj.medium : 0,
+            low: typeof summaryObj.low === "number" ? summaryObj.low : 0,
+            info: typeof summaryObj.info === "number" ? summaryObj.info : 0,
+            total: totalFindings,
+          },
+          findings: rawFindings.map((f, i) => ({
+            id: f.id || `dast-${job.job_id}-${i + 1}`,
+            title: f.title || "Security Finding",
+            severity: (f.severity || "medium").toLowerCase(),
+            description: f.description || f.title || "Finding detected by DAST engine",
+            host: f.target_url || targetUrl,
+            template_id: f.rule_id || f.vulnerability_id || f.tool_name || "dast-vuln",
+            cwe: f.cwe_id || undefined,
+            remediation: f.remediation || f.solution || undefined,
+          })),
+          technologies: Array.isArray(summaryObj.technologies) ? (summaryObj.technologies as string[]) : [],
+        };
 
-      return {
-        id: `result-${job.job_id}`,
-        scan_job_id: job.job_id,
-        summary,
-        created_at: job.created_at || new Date().toISOString(),
-        artifact: null,
-        error_logs: job.error_message || null,
-      };
+        return {
+          id: `result-${job.job_id}`,
+          scan_job_id: job.job_id,
+          summary,
+          created_at: job.created_at || new Date().toISOString(),
+          artifact: null,
+          error_logs: job.error_message || null,
+        };
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `getScanResult failed for ${scanId}: ${errMsg}`,
+          err instanceof Error ? err : undefined,
+        );
+        return {
+          id: `result-${scanId}`,
+          scan_job_id: scanId,
+          summary: {
+            total_rules_evaluated: 0,
+            risk_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 },
+            findings: [],
+            technologies: [],
+          },
+          created_at: new Date().toISOString(),
+          artifact: null,
+          error_logs: errMsg,
+        };
+      }
     }
 
     return this.request<ScanResultRead>(
@@ -859,9 +1023,11 @@ export class ScanOrchestratorClient {
     scanId: string,
     options: PollScanOptions = {},
   ): Promise<{ scan: ScanRead; result?: ScanResultRead }> {
+    const meta = ScanOrchestratorClient.scanMetaMap.get(scanId);
+    const kind = options.kind ?? meta?.kind ?? "dast";
     const [polled] = await this.pollScansUntilComplete([scanId], {
       ...options,
-      kind: "dast",
+      kind,
       onProgress: (scans) => {
         if (scans[0]) options.onProgress?.(scans[0]);
       },
@@ -958,7 +1124,11 @@ export class ScanOrchestratorClient {
     kind: "dast" | "sast",
     targetId?: string,
   ): Promise<ScanRead[]> {
-    const getOne = (id: string) => (kind === "sast" ? this.getSastScan(id) : this.getScan(id));
+    const getOne = (id: string) => {
+      const meta = ScanOrchestratorClient.scanMetaMap.get(id);
+      const resolvedKind = meta?.kind ?? kind;
+      return resolvedKind === "sast" ? this.getSastScan(id) : this.getScan(id);
+    };
     if (!targetId || scanIds.length < 2) {
       const scans: ScanRead[] = [];
       for (const id of scanIds) scans.push(await getOne(id));
@@ -1013,8 +1183,10 @@ export class ScanOrchestratorClient {
     scan: ScanRead,
     kind: "dast" | "sast",
   ): Promise<ScanResultRead | undefined> {
+    const meta = ScanOrchestratorClient.scanMetaMap.get(scan.id);
+    const resolvedKind = meta?.kind ?? kind;
     const getResult = (id: string) =>
-      kind === "sast" ? this.getSastScanResult(id) : this.getScanResult(id);
+      resolvedKind === "sast" ? this.getSastScanResult(id) : this.getScanResult(id);
     if (scan.status === "completed") return getResult(scan.id);
     try {
       return await getResult(scan.id);
@@ -1079,8 +1251,12 @@ export class ScanOrchestratorClient {
     idempotencyKey?: string,
   ): Promise<ScanRead> {
     if (this.useMicroservices) {
-      const target = this.targetMap.get(scan.target_id);
-      const targetValue = target?.value || scan.target_id;
+      const target = ScanOrchestratorClient.targetMap.get(scan.target_id);
+      const targetValue =
+        scan.workspace_path ||
+        scan.folder_path ||
+        target?.value ||
+        scan.target_id;
       const isRepo =
         targetValue.startsWith("http://") ||
         targetValue.startsWith("https://") ||
@@ -1103,9 +1279,30 @@ export class ScanOrchestratorClient {
         jobId = res.job_id;
       } else {
         let zipData: Uint8Array;
-        try {
-          const packaged = packageWorkspaceDirectory(targetValue);
-          if (packaged.stats.includedFiles === 0) {
+        if (scan.zipData) {
+          zipData = scan.zipData;
+        } else if (scan.files && scan.files.length > 0) {
+          const entries = scan.files.map((f) => ({
+            path: f.path,
+            data: new TextEncoder().encode(f.content),
+          }));
+          zipData = buildZipArchive(entries);
+        } else {
+          try {
+            const packaged = packageWorkspaceDirectory(targetValue);
+            if (packaged.stats.includedFiles === 0) {
+              const dummyEntry = {
+                path: "README.md",
+                data: new TextEncoder().encode(
+                  `# Codebase Scope: ${targetValue}\nScanned with Codefy SAST at ${new Date().toISOString()}`,
+                ),
+              };
+              zipData = buildZipArchive([dummyEntry]);
+            } else {
+              zipData = packaged.zipData;
+            }
+          } catch {
+            // If directory packaging is not possible in current environment, build a minimal valid zip archive
             const dummyEntry = {
               path: "README.md",
               data: new TextEncoder().encode(
@@ -1113,18 +1310,7 @@ export class ScanOrchestratorClient {
               ),
             };
             zipData = buildZipArchive([dummyEntry]);
-          } else {
-            zipData = packaged.zipData;
           }
-        } catch {
-          // If directory packaging is not possible in current environment, build a minimal valid zip archive
-          const dummyEntry = {
-            path: "README.md",
-            data: new TextEncoder().encode(
-              `# Codebase Scope: ${targetValue}\nScanned with Codefy SAST at ${new Date().toISOString()}`,
-            ),
-          };
-          zipData = buildZipArchive([dummyEntry]);
         }
         const res = isActive
           ? await this.sastClient.submitActiveScan(zipData, "source.zip", scan.target_id)
@@ -1132,7 +1318,7 @@ export class ScanOrchestratorClient {
         jobId = res.job_id;
       }
 
-      this.scanMetaMap.set(jobId, {
+      ScanOrchestratorClient.scanMetaMap.set(jobId, {
         targetId: scan.target_id,
         profile,
         targetValue,
@@ -1171,7 +1357,7 @@ export class ScanOrchestratorClient {
           status: params?.status,
         });
         return res.items.map((job) => {
-          const meta = this.scanMetaMap.get(job.job_id);
+          const meta = ScanOrchestratorClient.scanMetaMap.get(job.job_id);
           const status: ScanStatus =
             job.status === "completed"
               ? "completed"
@@ -1230,9 +1416,9 @@ export class ScanOrchestratorClient {
    * Retrieve the status of a SAST scan job (GET /v1/sast/scans/{scan_id})
    */
   async getSastScan(scanId: string): Promise<ScanRead> {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || ScanOrchestratorClient.scanMetaMap.has(scanId))) {
       const job = await this.sastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
+      const meta = ScanOrchestratorClient.scanMetaMap.get(scanId);
       const status: ScanStatus =
         job.status === "completed"
           ? "completed"
@@ -1290,36 +1476,47 @@ export class ScanOrchestratorClient {
    * Get the parsed results, summary, and findings of a SAST scan (GET /v1/sast/scans/{scan_id}/result)
    */
   async getSastScanResult(scanId: string): Promise<ScanResultRead> {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || ScanOrchestratorClient.scanMetaMap.has(scanId))) {
       try {
         const job = await this.sastClient.getJob(scanId);
-        const meta = this.scanMetaMap.get(scanId);
+        const meta = ScanOrchestratorClient.scanMetaMap.get(scanId);
+
+        const rawFindings = Array.isArray(job.findings) ? job.findings : [];
+        const totalFindings = job.summary?.total_findings ?? rawFindings.length;
 
         const summary = {
-          total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+          total_rules_evaluated: totalFindings,
           risk_summary: {
             critical: job.summary?.critical ?? 0,
             high: job.summary?.high ?? 0,
             medium: job.summary?.medium ?? 0,
             low: job.summary?.low ?? 0,
             info: 0,
-            total: job.summary?.total_findings ?? job.findings.length,
+            total: totalFindings,
           },
-          findings: job.findings.map((f, i) => ({
-            id: f.id || `sast-${job.job_id}-${i + 1}`,
-            code: f.vulnerability_id || f.tool_name,
-            severity: f.severity,
-            title: f.title,
-            description: f.description || f.title,
-            evidence: {
-              file: f.file_path,
-              line: f.line_start,
-              detector: f.tool_name,
-              check_id: f.vulnerability_id,
-              cwe: f.cwe_id ? [f.cwe_id] : undefined,
-            },
-            remediation: f.remediation || undefined,
-          })),
+          findings: rawFindings.map((f, i) => {
+            const lineStart =
+              typeof f.line_start === "number"
+                ? f.line_start
+                : f.line_start
+                  ? Number(f.line_start) || 1
+                  : 1;
+            return {
+              id: f.id || `sast-${job.job_id}-${i + 1}`,
+              code: f.vulnerability_id || f.tool_name || "sast-vuln",
+              severity: (f.severity || "medium").toLowerCase(),
+              title: f.title || f.vulnerability_id || "Security Finding",
+              description: f.description || f.title || "Vulnerability detected by SAST engine",
+              evidence: {
+                file: f.file_path,
+                line: lineStart,
+                detector: f.tool_name,
+                check_id: f.vulnerability_id,
+                cwe: f.cwe_id ? [f.cwe_id] : undefined,
+              },
+              remediation: f.remediation || undefined,
+            };
+          }),
         };
 
         return {
@@ -1332,6 +1529,10 @@ export class ScanOrchestratorClient {
         };
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `getSastScanResult failed for ${scanId}: ${errMsg}`,
+          err instanceof Error ? err : undefined,
+        );
         return {
           id: `result-${scanId}`,
           scan_job_id: scanId,

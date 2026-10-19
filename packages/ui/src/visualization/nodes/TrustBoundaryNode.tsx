@@ -68,6 +68,32 @@ export const TrustBoundaryNode = memo(function TrustBoundaryNode({
           {description}
         </div>
       )}
+
+      {/* Handles for incoming and outgoing connections */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
+        className="!h-2.5 !w-2.5 !border-vscode-bg !bg-vscode-focus pointer-events-auto"
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className="!h-2.5 !w-2.5 !border-vscode-bg !bg-vscode-focus pointer-events-auto"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="!h-2.5 !w-2.5 !border-vscode-bg !bg-vscode-focus pointer-events-auto"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
+        className="!h-2.5 !w-2.5 !border-vscode-bg !bg-vscode-focus pointer-events-auto"
+      />
     </div>
   );
 });

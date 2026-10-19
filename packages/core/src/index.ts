@@ -126,8 +126,11 @@ export {
   DEFAULT_AUTH_SERVICE_URL,
   DEFAULT_SAST_SERVICE_URL,
   DEFAULT_DAST_SERVICE_URL,
+  DEFAULT_CODEFY_JWT,
 } from "./orchestrator/constants.js";
 export {
   normalizeSastJobFindings,
   normalizeDastJobFindings,
+  deriveDastRemediation,
+  deriveDastFix,
 } from "./orchestrator/normalizer.js";

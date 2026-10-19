@@ -222,9 +222,12 @@ export function generateFindingDiff(finding: Finding): DiffResult {
   const primaryStep = steps[steps.length - 1] || steps[0];
   const rawPath = primaryStep?.filePath || "src/index.ts";
 
-  const cleanPath = rawPath.replace(/^https?:\/\/[^/]+\/?/, "");
+  let cleanPath = rawPath.replace(/^https?:\/\/[^/]+\/?/, "");
+  if (!cleanPath || cleanPath.trim().length === 0) {
+    cleanPath = finding.scope === "endpoint" ? "middleware.ts" : "src/index.ts";
+  }
   const pathParts = cleanPath.split(/[/\\]/);
-  const breadcrumb = pathParts.length > 0 ? pathParts : ["src", "index.ts"];
+  const breadcrumb = pathParts.length > 0 && pathParts[0] ? pathParts : [cleanPath];
   const fileBasename = pathParts[pathParts.length - 1] || cleanPath;
 
   let originalCode = "";
@@ -520,13 +523,23 @@ export function ${compName}() {
   // 12. Generic fallback with finding.fix
   else if (finding.fix) {
     startLine = Math.max(1, (primaryStep?.line ?? 5) - 2);
-    originalCode = `// Location: ${cleanPath}:${primaryStep?.line ?? 1}
+    if (finding.scope === "endpoint" || rawPath.startsWith("http")) {
+      originalCode = `// Endpoint: ${rawPath}
+// Issue: ${finding.title}
+// Current state: Unhardened configuration or missing policy`;
+
+      modifiedCode = `// Endpoint: ${rawPath}
+// Remediated: ${finding.title}
+${finding.fix}`;
+    } else {
+      originalCode = `// Location: ${cleanPath}:${primaryStep?.line ?? 1}
 // Issue: ${finding.title}
 executeUnsafeOperation();`;
 
-    modifiedCode = `// Location: ${cleanPath}:${primaryStep?.line ?? 1}
+      modifiedCode = `// Location: ${cleanPath}:${primaryStep?.line ?? 1}
 // Remediated: ${finding.title}
 ${finding.fix}`;
+    }
   } else {
     startLine = 1;
     originalCode = `// Vulnerability: ${finding.title}

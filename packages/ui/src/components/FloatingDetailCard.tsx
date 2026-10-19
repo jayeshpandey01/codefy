@@ -163,10 +163,11 @@ export function FloatingDetailCard({
           <button
             type="button"
             onClick={() => onJumpToLine?.(jumpTarget.filePath, jumpTarget.line)}
-            className="mt-1 flex items-start gap-1 font-mono text-[11px] text-vscode-link hover:underline cursor-pointer text-left break-all"
+            title={`Go to ${jumpTarget.filePath}:${jumpTarget.line}`}
+            className="mt-1.5 flex items-start gap-1.5 font-mono text-[11px] text-vscode-link hover:underline cursor-pointer text-left break-words [overflow-wrap:anywhere] group"
           >
-            <ExternalLinkIcon size={12} className="shrink-0 mt-0.5" />
-            <span>
+            <ExternalLinkIcon size={12} className="shrink-0 mt-0.5 text-vscode-muted group-hover:text-vscode-link transition-colors" />
+            <span className="leading-snug break-words [overflow-wrap:anywhere]">
               {jumpTarget.filePath}:{jumpTarget.line}
             </span>
           </button>
@@ -221,24 +222,43 @@ export function FloatingDetailCard({
                 Taint Propagation Path
               </div>
               <div className="flex flex-col gap-1.5 font-mono text-[11px]">
-                {steps.map((step, idx) => (
-                  <div key={idx} className="flex items-start gap-2">
-                    <span
-                      className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase shrink-0 mt-0.5 ${
-                        step.role === "source"
-                          ? "bg-vscode-card-selected text-severity-medium border border-vscode-focus/40"
-                          : step.role === "sink"
-                            ? "bg-[#5A1D1D] text-severity-critical border border-[#BE1100]"
-                            : "bg-[#1E3B20] text-severity-low border border-[#4EC9B0]/40"
-                      }`}
-                    >
-                      {step.role}
-                    </span>
-                    <span className="text-vscode-fg leading-tight break-words flex-1">
-                      {step.label}
-                    </span>
-                  </div>
-                ))}
+                {steps.map((step, idx) => {
+                  const cleanedLabel = step.label.replace(
+                    /^(source|sink|file|entry point|target url|scanned file|probe target):\s*/i,
+                    "",
+                  );
+                  const codeMatch = cleanedLabel.match(/\s+\(([A-Za-z0-9_.-]+)\)$/);
+                  const stepCode = codeMatch ? codeMatch[1] : null;
+                  const displayLabel = codeMatch
+                    ? cleanedLabel.slice(0, -codeMatch[0].length)
+                    : cleanedLabel;
+
+                  return (
+                    <div key={idx} className="flex items-start gap-2 min-w-0">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 mt-0.5 tracking-wider ${
+                          step.role === "source"
+                            ? "bg-vscode-card-selected text-severity-medium border border-vscode-focus/40"
+                            : step.role === "sink"
+                              ? "bg-[#5A1D1D] text-severity-critical border border-[#BE1100]"
+                              : "bg-[#1E3B20] text-severity-low border border-[#4EC9B0]/40"
+                        }`}
+                      >
+                        {step.role}
+                      </span>
+                      <div className="flex-1 min-w-0 flex items-baseline gap-1.5 flex-wrap">
+                        <span className="text-vscode-fg leading-snug break-words [overflow-wrap:anywhere]">
+                          {displayLabel}
+                        </span>
+                        {stepCode && (
+                          <span className="rounded bg-vscode-card border border-vscode-border px-1.5 py-0.2 text-[9px] font-mono text-vscode-muted shrink-0">
+                            {stepCode}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -247,17 +267,38 @@ export function FloatingDetailCard({
             </div>
           )}
 
-          {finding.description && (
-            <p className="text-xs text-[#999999] leading-relaxed break-words max-h-28 overflow-y-auto pr-1">
-              {finding.description}
-            </p>
-          )}
+          {finding.description &&
+            finding.description.trim().toLowerCase() !==
+              finding.title.trim().toLowerCase() && (
+              <div className="rounded border border-vscode-border/60 bg-vscode-header/50 p-2.5 text-xs">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-vscode-muted mb-1">
+                  Description
+                </div>
+                <p className="text-vscode-fg/90 text-xs leading-relaxed break-words max-h-24 overflow-y-auto pr-1 font-sans">
+                  {finding.description}
+                </p>
+              </div>
+            )}
         </div>
       )}
 
       {/* TAB 2: Vercel-Style Actionable Remediation Panel */}
       {activeTab === "remediation" && (
         <div className="mt-2.5 flex flex-col gap-2.5 max-h-72 overflow-y-auto pr-1">
+          {/* Fallback if no specific remediation fields provided */}
+          {!finding.reason && !finding.hint && !finding.fix && !finding.link && (
+            <div className="rounded-md border border-vscode-border bg-vscode-card p-3 text-xs text-vscode-muted">
+              <div className="flex items-center gap-1.5 font-semibold text-vscode-fg mb-1.5 text-[11px] uppercase tracking-wider">
+                <InfoIcon size={12} className="text-vscode-focus" />
+                <span>Remediation Guidance</span>
+              </div>
+              <p className="leading-relaxed">
+                No automated code patch is recorded for this finding. Follow standard security guidelines for{" "}
+                <span className="font-mono text-vscode-fg">{finding.cwe || finding.ruleId}</span> to validate and sanitize inputs or harden service configuration.
+              </p>
+            </div>
+          )}
+
           {/* Reason Box */}
           {finding.reason && (
             <div className="rounded-md border border-severity-critical/20 bg-[#2D1616] p-2.5 text-xs">

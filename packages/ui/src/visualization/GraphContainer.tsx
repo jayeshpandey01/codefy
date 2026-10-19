@@ -148,14 +148,14 @@ export function GraphContainer({
   const [activeHoverNodeId, setActiveHoverNodeId] = useState<string | null>(null);
 
   const { nodes: graphNodes, edges: graphEdges } = useMemo(() => {
+    if (trace) {
+      return traceToGraph(trace);
+    }
     if (findings && findings.length > 0) {
       return findingsToInterconnectedGraph(findings, {
         groupByFile,
         showAnnotations,
       });
-    }
-    if (trace) {
-      return traceToGraph(trace);
     }
     return { nodes: [], edges: [] };
   }, [trace, findings, groupByFile, showAnnotations]);

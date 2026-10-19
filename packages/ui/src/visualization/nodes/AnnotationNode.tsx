@@ -26,6 +26,13 @@ export function AnnotationNode(props: NodeProps): ReactElement {
       <Handle
         type="target"
         position={Position.Left}
+        id="left"
+        className="!bg-severity-high !w-2 !h-2 !border-none"
+      />
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
         className="!bg-severity-high !w-2 !h-2 !border-none"
       />
 

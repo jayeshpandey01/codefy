@@ -196,6 +196,7 @@ export type BridgeMessage =
   | (BaseMessage & {
       readonly type: "poll-remote-scan-request";
       readonly scanId: string;
+      readonly kind?: "dast" | "sast";
     })
   | (BaseMessage & {
       readonly type: "poll-remote-scan-result";

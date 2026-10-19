@@ -47,6 +47,7 @@ export {
   DEFAULT_DAST_SERVICE_URL,
   DEFAULT_OPERATOR_API_KEY,
   DEFAULT_ADMIN_API_KEY,
+  DEFAULT_CODEFY_JWT,
 } from "../orchestrator/constants.js";
 export { UnifiedSecurityClient } from "../orchestrator/unified-security-client.js";
 export type { UnifiedSecurityClientOptions } from "../orchestrator/unified-security-client.js";

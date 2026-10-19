@@ -300,6 +300,25 @@ function App(): ReactElement {
         if (lastFolder && !selectedFolder) {
           setSelectedFolder(lastFolder);
         }
+        if (sessions.length > 0 && sessions[0]?.id) {
+          try {
+            const latestSession = await getScanSessionWithFindings(sessions[0].id);
+            if (latestSession && latestSession.findings && latestSession.findings.length > 0 && mounted) {
+              const unique = deduplicateFindings(latestSession.findings);
+              setFindings(unique);
+              setSelectedFinding(unique[0]);
+              setShowFloatingDetail(true);
+              if (latestSession.mode) {
+                setScanMode(latestSession.mode as ScanMode);
+              }
+              if (latestSession.workspacePath) {
+                setSelectedFolder(latestSession.workspacePath);
+              }
+            }
+          } catch (restoreErr) {
+            console.warn("[WhoAmI] Failed to restore latest scan session findings on mount:", restoreErr);
+          }
+        }
       } catch (err) {
         console.warn("[WhoAmI] Failed to initialize DB state:", err);
       }
@@ -430,6 +449,9 @@ function App(): ReactElement {
             setSelectedFolder(sessionData.workspacePath);
             void setPreference("last_folder", sessionData.workspacePath);
             void upsertWorkspace(sessionData.workspacePath);
+          }
+          if (sessionData.mode) {
+            setScanMode(sessionData.mode as ScanMode);
           }
           openTab("graph");
         }
@@ -998,6 +1020,7 @@ function App(): ReactElement {
       targetId: string,
       profile: AllScanProfile,
       ruleTags?: string[],
+      workspacePath?: string,
     ): Promise<ScanRead> => {
       const isSast = isSastProfile(profile);
       if (isSast) {
@@ -1010,6 +1033,7 @@ function App(): ReactElement {
             target_id: targetId,
             profile: profile as SastProfile,
             rule_tags: ruleTags,
+            workspace_path: workspacePath,
           },
           requestId: `sub-sast-${Date.now()}`,
         });
@@ -1090,6 +1114,8 @@ function App(): ReactElement {
 
       try {
         const isSast = profiles.some((p) => isSastProfile(p));
+        const runMode: ScanMode = isSast ? "cloud-sast" : "orchestrator";
+        setScanMode(runMode);
         const targetRead = await handleRegisterTarget({
           value: target,
           owner: authSession?.name || "Account User",
@@ -1105,14 +1131,15 @@ function App(): ReactElement {
           scanId: string;
           isSast: boolean;
         }[] = [];
-        for (const profile of profiles) {
+        for (let i = 0; i < profiles.length; i++) {
+          const profile = profiles[i]!;
           if (profile === "secret-scan") continue;
           setOrchestratorProgress({
             currentTask: `Queueing ${profile}…`,
-            completed: 0,
+            completed: i + 1,
             total: profiles.length,
           });
-          const scan = await handleSubmitScan(targetRead.id, profile);
+          const scan = await handleSubmitScan(targetRead.id, profile, undefined, target);
           submitted.push({ profile, scanId: scan.id, isSast: isSastProfile(profile) });
         }
 
@@ -1125,10 +1152,11 @@ function App(): ReactElement {
           const running = submitted
             .filter(({ scanId }) => statusById.get(scanId)?.status === "running")
             .map(({ profile }) => profile);
+          const activeIndex = Math.min(done + (running.length > 0 ? 1 : 0), profiles.length);
           setOrchestratorProgress({
             currentTask:
               running.length > 0 ? `Running ${running.join(", ")}…` : "Waiting for scanner…",
-            completed: done,
+            completed: activeIndex > 0 ? activeIndex : 1,
             total: profiles.length,
           });
         };
@@ -1167,10 +1195,32 @@ function App(): ReactElement {
           total: profiles.length,
         });
 
+        // Record orchestrator/cloud SAST scan session in local database
+        const sessionId = `scan-orchestrator-${Date.now()}`;
+        const sessionRecord: ScanSessionEntry = {
+          id: sessionId,
+          workspacePath: target,
+          startedAt: Date.now() - 5000,
+          finishedAt: Date.now(),
+          mode: profiles.some((p) => isSastProfile(p)) ? "cloud-sast" : "orchestrator",
+          findingsCount: allNewFindings.length,
+        };
+        void saveScanSession(sessionRecord, allNewFindings).then(async () => {
+          const updated = await listScanSessions(100);
+          setScanSessions(updated);
+        });
+
         if (allNewFindings.length > 0) {
           setFindings((prev) => deduplicateFindings([...prev, ...allNewFindings]));
           setSelectedFinding(allNewFindings[0]);
           setShowFloatingDetail(true);
+          openTab("graph");
+        } else {
+          setOrchestratorProgress({
+            currentTask: `Scan Complete: 0 vulnerabilities found across ${profiles.length} task${profiles.length > 1 ? "s" : ""}`,
+            completed: profiles.length,
+            total: profiles.length,
+          });
           openTab("graph");
         }
       } catch (err) {
@@ -1220,6 +1270,7 @@ function App(): ReactElement {
       profiles: (AllScanProfile | "secret-scan")[];
       ruleTags?: string[];
     }) => {
+      setScanMode("cloud-sast");
       handleRunOrchestratorScan({
         target: params.folderPath,
         profiles: params.profiles,

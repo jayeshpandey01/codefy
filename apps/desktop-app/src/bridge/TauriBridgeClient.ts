@@ -15,6 +15,7 @@ import {
   DEFAULT_SAST_SERVICE_URL,
   DEFAULT_DAST_SERVICE_URL,
   DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_CODEFY_JWT,
   ScanOrchestratorClient,
   handleOrchestratorMessage,
 } from "@whoami/core/query";
@@ -63,6 +64,7 @@ export class TauriBridgeClient implements BridgeClient {
   /** Built once per scan, alongside it, in the Worker (see engine.worker.ts) —
    * answers get-workspace-graph-request from memory rather than re-scanning. */
   private lastWorkspaceGraph: WorkspaceGraph = { nodes: [], edges: [] };
+  private cachedOrchestratorClient: ScanOrchestratorClient | null = null;
 
   private static readonly UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -170,19 +172,23 @@ export class TauriBridgeClient implements BridgeClient {
    * fetch would be blocked. Allowed hosts: capabilities/default.json.
    */
   private async createOrchestratorClient(): Promise<ScanOrchestratorClient> {
+    if (this.cachedOrchestratorClient) {
+      return this.cachedOrchestratorClient;
+    }
     const session = await getAuthSession();
     const isExpired = session?.expiresAt ? session.expiresAt <= Date.now() : false;
     if (isExpired && session) {
       await clearAuthSession();
     }
     const jwtToken =
-      !isExpired &&
+      (!isExpired &&
       session?.accessToken &&
       session.accessToken !== "offline-local-session"
         ? session.accessToken
-        : undefined;
+        : undefined) ||
+      DEFAULT_CODEFY_JWT;
 
-    return new ScanOrchestratorClient({
+    this.cachedOrchestratorClient = new ScanOrchestratorClient({
       baseUrl: DEFAULT_ORCHESTRATOR_URL,
       sastBaseUrl: DEFAULT_SAST_SERVICE_URL,
       dastBaseUrl: DEFAULT_DAST_SERVICE_URL,
@@ -194,6 +200,7 @@ export class TauriBridgeClient implements BridgeClient {
       useMicroservices: true,
       fetchFn: tauriFetch as typeof fetch,
     });
+    return this.cachedOrchestratorClient;
   }
 
   private emitError(requestId: string | undefined, err: unknown, fallbackScope: string): void {
@@ -203,6 +210,7 @@ export class TauriBridgeClient implements BridgeClient {
       structured.code === "session_expired" ||
       /session.*expire|token.*invalid|invalid.*token/i.test(structured.message)
     ) {
+      this.cachedOrchestratorClient = null;
       void clearAuthSession();
     }
     this.emit({ type: "error", requestId, ...structured });

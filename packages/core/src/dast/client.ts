@@ -5,7 +5,7 @@ import type {
   DastToolCatalogResponse,
   DastValidateTargetResponse,
 } from "@whoami/types";
-import { DEFAULT_DAST_SERVICE_URL } from "../orchestrator/constants.js";
+import { DEFAULT_DAST_SERVICE_URL, DEFAULT_CODEFY_JWT } from "../orchestrator/constants.js";
 import { SecurityServiceApiError } from "../sast/client.js";
 
 export interface DastClientOptions {
@@ -34,15 +34,16 @@ export class DastClient {
 
   constructor(options: DastClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
-    const rawJwt = options.jwtToken?.trim();
-    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : undefined;
+    const envJwt = typeof process !== "undefined" ? process.env?.CODEFY_JWT : undefined;
+    const rawJwt = options.jwtToken?.trim() || envJwt || DEFAULT_CODEFY_JWT;
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : DEFAULT_CODEFY_JWT;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
 
   private getAuthHeader(): Record<string, string> {
-    const token = this.jwtToken || this.apiKey;
+    const token = this.jwtToken || DEFAULT_CODEFY_JWT;
     if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
         "Authentication required: Please sign in to your Codefy account or configure an API key to access DAST services.",
@@ -174,11 +175,32 @@ export class DastClient {
   }
 
   async submitScan(req: DastScanRequest): Promise<DastScanResponse> {
-    return this.request("/v1/dast/scan", {
+    const path = req.mode === "active" ? "/v1/dast/scan/active" : "/v1/dast/scan";
+    return this.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
     });
+  }
+
+  async submitActiveScan(req: DastScanRequest): Promise<DastScanResponse> {
+    return this.submitScan({ ...req, mode: "active" });
+  }
+
+  async submitPassiveScan(req: DastScanRequest): Promise<DastScanResponse> {
+    return this.submitScan({ ...req, mode: "passive" });
+  }
+
+  async listScans(params?: { limit?: number; offset?: number }): Promise<{ items: DastJobDetailResponse[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.limit !== undefined) searchParams.set("limit", String(params.limit));
+    if (params?.offset !== undefined) searchParams.set("offset", String(params.offset));
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    try {
+      return await this.request<{ items: DastJobDetailResponse[] }>(`/v1/dast/scans${qs}`, { method: "GET" });
+    } catch {
+      return await this.request<{ items: DastJobDetailResponse[] }>(`/v1/jobs${qs}`, { method: "GET" });
+    }
   }
 
   async getJob(jobId: string): Promise<DastJobDetailResponse> {

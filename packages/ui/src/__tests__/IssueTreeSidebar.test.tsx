@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Finding, ScanResultRead } from "@whoami/types";
 import { IssueTreeSidebar } from "../components/IssueTreeSidebar.js";
 import { convertScanResultToFindings } from "../components/RemoteScanPanel.js";
+
+afterEach(() => {
+  cleanup();
+});
 
 function buildTestFindings(): Finding[] {
   return [
@@ -348,5 +352,44 @@ describe("IssueTreeSidebar", () => {
       profile: "recon",
     });
     expect(convertedWithProfile[0]?.scope).toBe("endpoint");
+  });
+
+  it("convertScanResultToFindings accurately classifies SAST findings when profile is bare tool name like semgrep", () => {
+    const mockSastResult: ScanResultRead = {
+      id: "scan-sast-test",
+      scan_job_id: "job_semgrep_99",
+      created_at: "2026-09-18T12:00:00.000Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        findings: [
+          {
+            code: "SEMGREP_SQLI",
+            title: "SQL Injection via raw query",
+            severity: "high",
+            description: "Unsanitized user input formatted into query string",
+            evidence: {
+              file: "src/api/users.py",
+              line: 34,
+              detector: "semgrep",
+              check_id: "python.django.security.raw-sql-injection",
+              cwe: ["CWE-89: SQL Injection"],
+            },
+            remediation: "Use parameterized queries",
+          },
+        ],
+      },
+    };
+
+    const converted = convertScanResultToFindings(mockSastResult, "workspace", {
+      profile: "semgrep",
+    });
+    expect(converted.length).toBe(1);
+    expect(converted[0]?.scope).toBe("code");
+    expect(converted[0]?.code).toBe("SEMGREP_SQLI");
+    expect(converted[0]?.cwe).toBe("CWE-89");
+    expect(converted[0]?.trace.sinkClass).toBe("sql-injection");
+    expect(converted[0]?.trace.steps[0]?.filePath).toBe("src/api/users.py");
+    expect(converted[0]?.trace.steps[0]?.line).toBe(34);
   });
 });

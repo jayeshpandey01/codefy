@@ -324,4 +324,40 @@ describe("normalizeRemoteFindings for SAST engines", () => {
     expect(f.trace.steps[0]?.role).toBe("source");
     expect(f.trace.steps[1]?.role).toBe("sink");
   });
+
+  it("accurately classifies findings as SAST when profile is bare tool name like semgrep or bandit", () => {
+    const rawResult: ScanResultRead = {
+      id: "scan-semgrep-test",
+      scan_job_id: "job_semgrep_123",
+      created_at: "2026-09-03T07:43:55.641000Z",
+      artifact: null,
+      error_logs: null,
+      summary: {
+        findings: [
+          {
+            title: "Command Injection in subprocess.Popen",
+            severity: "high",
+            description: "Potential shell injection",
+            evidence: {
+              file: "app/main.py",
+              line: 42,
+              detector: "semgrep",
+              check_id: "python.lang.security.audit.subprocess-shell-true",
+              cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"],
+            },
+            remediation: "Avoid shell=True",
+          },
+        ],
+      },
+    };
+
+    const findings = normalizeRemoteFindings(rawResult, "workspace", { profile: "semgrep" });
+    expect(findings.length).toBe(1);
+    const f = findings[0]!;
+    expect(f.scope).toBe("code");
+    expect(f.cwe).toBe("CWE-78");
+    expect(f.trace.sinkClass).toBe("command-injection");
+    expect(f.trace.steps[0]?.filePath).toBe("app/main.py");
+    expect(f.trace.steps[0]?.line).toBe(42);
+  });
 });

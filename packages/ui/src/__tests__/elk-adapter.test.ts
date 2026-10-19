@@ -184,4 +184,38 @@ describe("layoutGraph", () => {
     expect(result.nodes).toEqual([]);
     expect(result.edges).toEqual([]);
   });
+
+  it("differentiates graphs with identical node/edge counts and does not return stale cached layouts", async () => {
+    const graphA_nodes: GraphNode[] = [
+      { id: "start", role: "source", label: "Start", filePath: "a.ts", line: 1 },
+      { id: "node-A", role: "passthrough", label: "Node A", filePath: "a.ts", line: 2 },
+      { id: "end", role: "sink", label: "End", filePath: "a.ts", line: 3 },
+    ];
+    const graphA_edges: GraphEdge[] = [
+      { id: "e1", source: "start", target: "node-A", label: "step 1", tainted: true },
+      { id: "e2", source: "node-A", target: "end", label: "step 2", tainted: true },
+    ];
+
+    const graphB_nodes: GraphNode[] = [
+      { id: "start", role: "source", label: "Start", filePath: "a.ts", line: 1 },
+      { id: "node-B", role: "passthrough", label: "Node B", filePath: "b.ts", line: 10 },
+      { id: "end", role: "sink", label: "End", filePath: "a.ts", line: 3 },
+    ];
+    const graphB_edges: GraphEdge[] = [
+      { id: "e1", source: "start", target: "node-B", label: "step 1", tainted: true },
+      { id: "e2", source: "node-B", target: "end", label: "step 2", tainted: true },
+    ];
+
+    const resultA = await layoutGraph(graphA_nodes, graphA_edges, "DOWN");
+    const resultB = await layoutGraph(graphB_nodes, graphB_edges, "DOWN");
+
+    const idsA = resultA.nodes.map((n) => n.id);
+    const idsB = resultB.nodes.map((n) => n.id);
+
+    expect(idsA).toContain("node-A");
+    expect(idsA).not.toContain("node-B");
+
+    expect(idsB).toContain("node-B");
+    expect(idsB).not.toContain("node-A");
+  });
 });

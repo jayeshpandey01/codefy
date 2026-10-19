@@ -44,6 +44,18 @@ export function SinkNode(props: NodeProps): ReactElement {
           id="top"
           className="!bg-severity-critical !w-1.5 !h-1.5 !border-none"
         />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="right"
+          className="!bg-severity-critical !w-1.5 !h-1.5 !border-none"
+        />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          id="bottom"
+          className="!bg-severity-critical !w-1.5 !h-1.5 !border-none"
+        />
       </div>
     );
   }
@@ -87,6 +99,20 @@ export function SinkNode(props: NodeProps): ReactElement {
         type="target"
         position={Position.Top}
         id="top"
+        className="!bg-severity-critical !w-2 !h-2 !border-none"
+      />
+
+      {/* Source handles (Right & Bottom) for annotations, probes & impact chains */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="!bg-severity-critical !w-2 !h-2 !border-none"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
         className="!bg-severity-critical !w-2 !h-2 !border-none"
       />
 

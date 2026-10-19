@@ -113,6 +113,10 @@ export interface SASTScanCreate {
   target_id: string;
   profile?: SastProfile;
   rule_tags?: string[] | null;
+  workspace_path?: string;
+  folder_path?: string;
+  files?: Array<{ path: string; content: string }>;
+  zipData?: Uint8Array;
 }
 
 export interface SastProfileEngine {

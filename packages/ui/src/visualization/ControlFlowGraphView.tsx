@@ -108,12 +108,35 @@ export function ControlFlowGraphView({
     return graphEdges.map((e) => {
       const isExploit = e.type === "branch_false" || e.tainted;
       const isSafe = e.type === "branch_true";
-      const sourceHandle = isSafe
-        ? "left"
-        : isExploit && e.source.includes("decision")
-          ? "right"
-          : undefined;
-      const targetHandle = "top";
+      const isDecisionSource = e.source.includes("decision");
+
+      let sourceHandle: string | undefined;
+      let targetHandle: string | undefined;
+
+      if (direction === "RIGHT") {
+        if (!isDecisionSource) {
+          sourceHandle = "right";
+          targetHandle = "target-left";
+        } else if (isSafe) {
+          sourceHandle = "bottom";
+          targetHandle = "left";
+        } else {
+          sourceHandle = "right";
+          targetHandle = "left";
+        }
+      } else {
+        // Default: direction === "DOWN"
+        if (!isDecisionSource) {
+          sourceHandle = "bottom";
+          targetHandle = "top";
+        } else if (isSafe) {
+          sourceHandle = "left";
+          targetHandle = "top";
+        } else {
+          sourceHandle = "right";
+          targetHandle = "top";
+        }
+      }
 
       return {
         id: e.id,
@@ -147,7 +170,7 @@ export function ControlFlowGraphView({
         },
       };
     });
-  }, [graphEdges]);
+  }, [graphEdges, direction]);
 
   const handleNodeClick = useCallback<NodeMouseHandler>(
     (_event, node) => {

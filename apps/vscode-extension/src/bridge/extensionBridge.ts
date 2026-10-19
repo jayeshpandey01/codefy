@@ -6,6 +6,7 @@ import {
   DEFAULT_SAST_SERVICE_URL,
   DEFAULT_DAST_SERVICE_URL,
   DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_CODEFY_JWT,
   GatewayAuthClient,
   ScanOrchestratorClient,
   handleOrchestratorMessage,
@@ -106,6 +107,7 @@ export class ExtensionBridge {
   private readonly registry = new RequestRegistry();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly remoteFindingsById = new Map<string, Finding>();
+  private cachedOrchestratorClient: ScanOrchestratorClient | null = null;
   // Real Node.js, no browser CSP -- unlike the webview (connect-src 'none'
   // by design, see getWebviewHtml.ts), the extension host can make direct
   // HTTPS calls to the AI Gateway's /developer/auth/* endpoints. The
@@ -141,8 +143,8 @@ export class ExtensionBridge {
   ) {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("whoami.orchestrator")) {
-          // Configuration will be re-read on next createOrchestratorClient() call
+        if (e.affectsConfiguration("whoami.orchestrator") || e.affectsConfiguration("codefy.orchestrator")) {
+          this.cachedOrchestratorClient = null;
         }
       }),
       this.panel.webview.onDidReceiveMessage((message: BridgeMessage) => {
@@ -199,9 +201,12 @@ export class ExtensionBridge {
 
     const session = await this.readAuthSession();
     const jwtToken =
-      session?.accessToken && session.accessToken !== "offline-local-session"
+      (session?.accessToken && session.accessToken !== "offline-local-session"
         ? session.accessToken
-        : undefined;
+        : undefined) ||
+      clean(process.env.CODEFY_JWT) ||
+      clean(env.CODEFY_JWT) ||
+      DEFAULT_CODEFY_JWT;
 
     const sastBaseUrl =
       clean(config.get<string>("sast.url")) ||
@@ -259,6 +264,7 @@ export class ExtensionBridge {
   }
 
   private async saveAuthSession(session: AuthSession | null): Promise<void> {
+    this.cachedOrchestratorClient = null;
     if (session) {
       await this.context.secrets.store(AUTH_SESSION_SECRET_KEY, JSON.stringify(session));
     } else {
@@ -266,8 +272,11 @@ export class ExtensionBridge {
     }
   }
 
-  private getOrchestratorClient(): Promise<ScanOrchestratorClient> {
-    return this.createOrchestratorClient();
+  private async getOrchestratorClient(): Promise<ScanOrchestratorClient> {
+    if (!this.cachedOrchestratorClient) {
+      this.cachedOrchestratorClient = await this.createOrchestratorClient();
+    }
+    return this.cachedOrchestratorClient;
   }
 
   /** Invoked by the whoami.scanWorkspace command -- not a reply to a webview request. */
@@ -450,6 +459,24 @@ export class ExtensionBridge {
             chat_history: {},
           };
 
+          // 1. Read first from VS Code ExtensionContext.globalState (local persistence)
+          try {
+            const saved = this.context.globalState.get<Record<string, unknown>>(PERSISTENCE_KEY);
+            if (saved && isRecord(saved)) {
+              for (const store of PERSISTENCE_STORES) {
+                const bucket = saved[store];
+                if (isRecord(bucket)) {
+                  for (const [k, v] of Object.entries(bucket)) {
+                    blob[store][k] = v;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to load globalState persistence", e);
+          }
+
+          // 2. Also overlay ~/.codefy/*.json if present
           try {
             if (fs.existsSync(codefyDir)) {
               for (const store of PERSISTENCE_STORES) {
@@ -864,8 +891,13 @@ export class ExtensionBridge {
       return;
     }
 
-    // Orchestrator Remote Findings
-    if (finding.scope === "orchestrator" || finding.id.startsWith("remote-")) {
+    // Orchestrator Remote Findings & DAST Endpoint Findings
+    if (
+      finding.scope === "orchestrator" ||
+      finding.scope === "endpoint" ||
+      finding.id.startsWith("remote-") ||
+      finding.id.startsWith("dast-")
+    ) {
       try {
         const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (rootPath) {

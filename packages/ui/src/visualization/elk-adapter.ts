@@ -25,11 +25,13 @@ function getLayoutCacheKey(
   const nodeCount = nodes.length;
   const edgeCount = edges.length;
   if (nodeCount === 0) return `empty:${direction}`;
-  const firstNode = nodes[0]?.id ?? "";
-  const lastNode = nodes[nodeCount - 1]?.id ?? "";
-  const firstEdge = edges[0]?.id ?? "";
-  const lastEdge = edges[edgeCount - 1]?.id ?? "";
-  return `${nodeCount}:${edgeCount}:${firstNode}:${lastNode}:${firstEdge}:${lastEdge}:${direction}`;
+  const nodeSig = nodes
+    .map((n) => `${n.id}:${n.role}:${n.parentId ?? ""}`)
+    .join(",");
+  const edgeSig = edges
+    .map((e) => `${e.id}:${e.source}->${e.target}`)
+    .join(",");
+  return `${direction}|${nodeCount}:${edgeCount}|${nodeSig}|${edgeSig}`;
 }
 
 export interface PositionedNode {

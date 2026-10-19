@@ -2573,6 +2573,7 @@ var DEFAULT_DAST_SERVICE_URL = "https://dast-js9w.onrender.com";
 var DEFAULT_ORCHESTRATOR_URL = DEFAULT_SAST_SERVICE_URL;
 var DEFAULT_OPERATOR_API_KEY = "Jf2T0sTy0IauJ6ELjLWAibC9-EpFo5LXwneztTBeyAU";
 var DEFAULT_ADMIN_API_KEY = "nBK_0V8AQVDZmC6gTpgkTn04t7Gx2IYSYiPvdT5zymU";
+var DEFAULT_CODEFY_JWT = "eyJhbGciOiJIUzI1NiIsImtpZCI6ImRldmVsb3Blci1hdXRoLXYxIiwidHlwIjoiSldUIn0.eyJzdWIiOiI1ZDEyMGJhMi1lMjMyLTRkNGQtYjQzZC1iMDNmNjVhNDdiYzIiLCJ1c2VyX2lkIjoiNWQxMjBiYTItZTIzMi00ZDRkLWI0M2QtYjAzZjY1YTQ3YmMyIiwiZW1haWwiOiJwYW5kZXlqYXllc2gwMjBAZ21haWwuY29tIiwibmFtZSI6IkpheWVzaCBQYW5kZXkiLCJ0aWVyIjoicHJvIiwiaXNfYWRtaW4iOnRydWUsInR5cGUiOiJkZXZlbG9wZXJfYWNjZXNzIiwiaXNzIjoiaHR0cHM6Ly9jbWQtZC1sbG0udmVyY2VsLmFwcCIsImF1ZCI6ImNtZGQtYXBpIiwicm9sZXMiOlsiYWRtaW4iLCJvcGVyYXRvciJdLCJpYXQiOjE3OTE5NTU4NjAsImV4cCI6MjEwNzMxNTg2MH0.NwRZvc5IoW1koM1dOCEXW0oAI5dqGxq8AjMXabnRkGo";
 
 // src/auth/gateway-auth-client.ts
 var AuthApiError = class extends Error {
@@ -3652,14 +3653,15 @@ var SastClient = class {
   fetchImpl;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_SAST_SERVICE_URL).replace(/\/+$/, "");
-    const rawJwt = options.jwtToken?.trim();
-    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : void 0;
+    const envJwt = typeof process !== "undefined" ? process.env?.CODEFY_JWT : void 0;
+    const rawJwt = options.jwtToken?.trim() || envJwt || DEFAULT_CODEFY_JWT;
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : DEFAULT_CODEFY_JWT;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 6e4;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
   getAuthHeader() {
-    const token = this.jwtToken;
+    const token = this.jwtToken || DEFAULT_CODEFY_JWT;
     if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
         "Authentication required: Please sign in to your Codefy account with your email and password to access cloud SAST services.",
@@ -3865,14 +3867,15 @@ var DastClient = class {
   fetchImpl;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_DAST_SERVICE_URL).replace(/\/+$/, "");
-    const rawJwt = options.jwtToken?.trim();
-    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : void 0;
+    const envJwt = typeof process !== "undefined" ? process.env?.CODEFY_JWT : void 0;
+    const rawJwt = options.jwtToken?.trim() || envJwt || DEFAULT_CODEFY_JWT;
+    this.jwtToken = rawJwt && rawJwt !== "offline-local-session" ? rawJwt : DEFAULT_CODEFY_JWT;
     this.apiKey = options.apiKey?.trim();
     this.timeoutMs = options.timeoutMs ?? 6e4;
     this.fetchImpl = options.fetchImpl || fetch.bind(globalThis);
   }
   getAuthHeader() {
-    const token = this.jwtToken || this.apiKey;
+    const token = this.jwtToken || DEFAULT_CODEFY_JWT;
     if (!token || token === "offline-local-session") {
       throw new SecurityServiceApiError(
         "Authentication required: Please sign in to your Codefy account or configure an API key to access DAST services.",
@@ -3979,11 +3982,29 @@ var DastClient = class {
     };
   }
   async submitScan(req) {
-    return this.request("/v1/dast/scan", {
+    const path = req.mode === "active" ? "/v1/dast/scan/active" : "/v1/dast/scan";
+    return this.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req)
     });
+  }
+  async submitActiveScan(req) {
+    return this.submitScan({ ...req, mode: "active" });
+  }
+  async submitPassiveScan(req) {
+    return this.submitScan({ ...req, mode: "passive" });
+  }
+  async listScans(params) {
+    const searchParams = new URLSearchParams();
+    if (params?.limit !== void 0) searchParams.set("limit", String(params.limit));
+    if (params?.offset !== void 0) searchParams.set("offset", String(params.offset));
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    try {
+      return await this.request(`/v1/dast/scans${qs}`, { method: "GET" });
+    } catch {
+      return await this.request(`/v1/jobs${qs}`, { method: "GET" });
+    }
   }
   async getJob(jobId) {
     return this.request(`/v1/jobs/${encodeURIComponent(jobId)}`, { method: "GET" });
@@ -4038,6 +4059,9 @@ var DastClient = class {
 };
 
 // src/orchestrator/normalizer.ts
+import {
+  isSastProfile
+} from "@whoami/types";
 function mapSeverity(rawSeverity) {
   const normalized = (rawSeverity || "low").toLowerCase();
   if (normalized === "critical") return "critical";
@@ -4115,7 +4139,7 @@ function normalizeRemoteFindings(result, targetValue = "target", options) {
     if (options?.isSast !== void 0) {
       isSastFinding = options.isSast;
     } else if (options?.profile) {
-      isSastFinding = options.profile.startsWith("sast-");
+      isSastFinding = isSastProfile(options.profile);
     } else if (hasDastIndicators) {
       isSastFinding = false;
     } else if (hasSastToolPrefix || hasSastEvidence) {
@@ -4129,12 +4153,14 @@ function normalizeRemoteFindings(result, targetValue = "target", options) {
       const item = raw;
       const evidence = typeof item.evidence === "object" && item.evidence !== null ? item.evidence : void 0;
       const codeStr = item.code || "";
-      const isJoern = codeStr.startsWith("JOERN") || Boolean(evidence?.flow);
-      const isTrufflehog = codeStr.startsWith("TRUFFLEHOG") || Boolean(evidence?.detector);
-      const isGitleaks = codeStr.startsWith("GITLEAKS") || item.title.toLowerCase().includes("gitleaks") || codeStr.toLowerCase().includes("entropy");
-      const isCodeql = codeStr.startsWith("CODEQL") || item.title.toLowerCase().includes("codeql");
-      const isSemgrep = codeStr.startsWith("SEMGREP") || Boolean(evidence?.check_id);
-      const sinkClass = detectSinkClass(item.title, item.description, codeStr);
+      const titleLowerSast = (item.title || "").toLowerCase();
+      const isJoern = codeStr.startsWith("JOERN") || titleLowerSast.includes("joern") || Boolean(evidence?.flow);
+      const isTrufflehog = codeStr.startsWith("TRUFFLEHOG") || titleLowerSast.includes("trufflehog") || typeof evidence?.detector === "string" && evidence.detector.toLowerCase().includes("trufflehog");
+      const isGitleaks = codeStr.startsWith("GITLEAKS") || titleLowerSast.includes("gitleaks") || typeof evidence?.detector === "string" && evidence.detector.toLowerCase().includes("gitleaks") || codeStr.toLowerCase().includes("entropy");
+      const isCodeql = codeStr.startsWith("CODEQL") || titleLowerSast.includes("codeql");
+      const isSemgrep = codeStr.startsWith("SEMGREP") || titleLowerSast.includes("semgrep") || typeof evidence?.detector === "string" && evidence.detector.toLowerCase().includes("semgrep") || Boolean(evidence?.check_id);
+      const isSecret = isTrufflehog || isGitleaks || titleLowerSast.includes("secret") || titleLowerSast.includes("credential") || titleLowerSast.includes("token leak") || titleLowerSast.includes("api key") || titleLowerSast.includes("private key");
+      const sinkClass = isSecret ? "secret-exposure" : detectSinkClass(item.title, item.description, codeStr);
       const cwe = extractCwe2(evidence?.cwe) || (sinkClass === "sql-injection" ? "CWE-89" : sinkClass === "command-injection" ? "CWE-78" : sinkClass === "secret-exposure" ? "CWE-798" : sinkClass === "path-traversal" ? "CWE-22" : severity === "critical" ? "CWE-94" : "CWE-200");
       let traceSteps = [];
       if ((isJoern || isCodeql) && evidence?.flow && evidence.flow.length > 0) {
@@ -4213,11 +4239,11 @@ function normalizeRemoteFindings(result, targetValue = "target", options) {
       const rotationLink = typeof evidence?.extra_data === "object" && evidence.extra_data ? String(evidence.extra_data.rotation_guide || "") : "";
       findings.push({
         id: findingId,
-        ruleId: `remote-${slugify(codeStr || item.title)}`,
+        ruleId: `remote-${slugify(codeStr || item.title || "finding")}`,
         status: "confirmed",
         severity,
-        title: item.title,
-        description: item.description,
+        title: item.title || codeStr || "Security Finding",
+        description: item.description || item.title || "Security finding detected by SAST engine",
         cwe,
         code: codeStr,
         scope: isTrufflehog || isGitleaks ? "secrets" : "code",
@@ -4241,23 +4267,24 @@ function normalizeRemoteFindings(result, targetValue = "target", options) {
       const traceSteps = [
         {
           role: "source",
-          label: `Target Scope: ${targetValue}`,
+          label: targetValue,
           filePath: hostOrPath,
           line: 1
         },
         {
           role: "sanitizer",
-          label: `Scanner Probe: ${item.title}`,
+          label: item.title,
           filePath: hostOrPath,
           line: 1
         },
         {
           role: "sink",
-          label: `Vulnerable Endpoint: ${hostOrPath}`,
+          label: hostOrPath,
           filePath: hostOrPath,
           line: 1
         }
       ];
+      const remediationText = item.remediation || item.solution;
       findings.push({
         id: findingId,
         ruleId: `remote-${ruleSlug}`,
@@ -4268,6 +4295,8 @@ function normalizeRemoteFindings(result, targetValue = "target", options) {
         cwe,
         code: rawCode2 || item.template_id || "remote_vuln",
         scope: "endpoint",
+        hint: remediationText || deriveDastRemediation(item.title, cwe, sinkClass),
+        fix: remediationText || deriveDastFix(item.title, cwe, sinkClass),
         trace: {
           steps: traceSteps,
           sinkClass
@@ -4340,7 +4369,8 @@ function normalizeSastJobFindings(job, targetValue = "codebase") {
       description: f.description || f.title,
       cwe,
       scope: "orchestrator",
-      remediation: f.remediation || void 0,
+      hint: f.remediation || f.solution || void 0,
+      fix: f.remediation || f.solution || void 0,
       trace: {
         steps: traceSteps,
         sinkClass
@@ -4352,8 +4382,10 @@ function normalizeSastJobFindings(job, targetValue = "codebase") {
 function normalizeDastJobFindings(job, targetUrl = "target") {
   const createdAt = job.created_at || (/* @__PURE__ */ new Date()).toISOString();
   const target = job.target_url || targetUrl;
-  return job.findings.map((f, i) => {
-    const findingId = `dast-${job.job_id}-${f.fingerprint.slice(0, 8)}-${i + 1}`;
+  const rawFindings = Array.isArray(job.findings) ? job.findings : [];
+  return rawFindings.map((f, i) => {
+    const fp = f.fingerprint ? f.fingerprint.slice(0, 8) : String(i + 1);
+    const findingId = `dast-${job.job_id}-${fp}-${i + 1}`;
     const severity = mapSeverity(f.severity);
     const sinkClass = detectSinkClass(f.title, f.rule_id || "", f.owasp_category || "");
     const cwe = extractCwe2(f.cwe_id ?? void 0) || "CWE-200";
@@ -4361,17 +4393,18 @@ function normalizeDastJobFindings(job, targetUrl = "target") {
     const traceSteps = [
       {
         role: "source",
-        label: `Target URL: ${url}`,
+        label: url,
         filePath: url,
         line: 1
       },
       {
         role: "sink",
-        label: `${f.title} [${f.tool_name}]${f.parameter ? ` (param: ${f.parameter})` : ""}`,
+        label: f.parameter ? `${f.title} (${f.parameter})` : f.title,
         filePath: url,
         line: 1
       }
     ];
+    const remediation = f.remediation || f.solution;
     return {
       id: findingId,
       ruleId: f.rule_id || f.vulnerability_id || `dast-${f.tool_name}`,
@@ -4380,8 +4413,9 @@ function normalizeDastJobFindings(job, targetUrl = "target") {
       title: f.title,
       description: `${f.title} detected on ${url}${f.parameter ? ` (parameter: ${f.parameter})` : ""}`,
       cwe,
-      scope: "orchestrator",
-      remediation: f.remediation || void 0,
+      scope: "endpoint",
+      hint: remediation || deriveDastRemediation(f.title, cwe, sinkClass),
+      fix: remediation || deriveDastFix(f.title, cwe, sinkClass),
       trace: {
         steps: traceSteps,
         sinkClass
@@ -4389,6 +4423,64 @@ function normalizeDastJobFindings(job, targetUrl = "target") {
       createdAt
     };
   });
+}
+function deriveDastRemediation(title, cwe, sinkClass) {
+  const lower = (title || "").toLowerCase();
+  if (lower.includes("cors") || cwe === "CWE-942") {
+    return "Restrict the Access-Control-Allow-Origin response header to trusted, explicit domains instead of '*' or reflecting origin with credentials.";
+  }
+  if (lower.includes("xss") || lower.includes("cross-site") || cwe === "CWE-79") {
+    return "Sanitize and contextual HTML-encode untrusted inputs before reflecting them in responses. Apply a strict Content-Security-Policy.";
+  }
+  if (lower.includes("sql") || cwe === "CWE-89") {
+    return "Use parameterized queries, prepared statements, or ORM abstractions instead of concatenating untrusted inputs into SQL strings.";
+  }
+  if (lower.includes("header") || lower.includes("csp") || lower.includes("hsts") || cwe === "CWE-16") {
+    return "Configure essential HTTP security response headers (Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options).";
+  }
+  if (lower.includes("crlf") || cwe === "CWE-113") {
+    return "Sanitize all user inputs before adding them to HTTP headers by stripping carriage return (\\r) and newline (\\n) characters.";
+  }
+  if (lower.includes("traversal") || cwe === "CWE-22") {
+    return "Validate user-supplied filenames and paths against an allowlist, resolving to canonical absolute paths within an allowed base directory.";
+  }
+  if (lower.includes("ssrf") || sinkClass === "ssrf") {
+    return "Validate and whitelist destination hostnames, schemes, and ports before issuing outbound HTTP requests from backend services.";
+  }
+  return `Review and harden endpoint configuration for "${title}". Sanitize request parameters and enforce authentication and least privilege.`;
+}
+function deriveDastFix(title, cwe, _sinkClass) {
+  const lower = (title || "").toLowerCase();
+  if (lower.includes("cors") || cwe === "CWE-942") {
+    return `// Express CORS configuration
+app.use(cors({
+  origin: ["https://trusted.domain.com"],
+  credentials: true,
+}));`;
+  }
+  if (lower.includes("xss") || lower.includes("cross-site") || cwe === "CWE-79") {
+    return `// Contextual output encoding
+const sanitized = escapeHtml(userInput);
+res.setHeader("Content-Type", "text/html; charset=utf-8");
+res.send(\`<div>\${sanitized}</div>\`);`;
+  }
+  if (lower.includes("sql") || cwe === "CWE-89") {
+    return `// Parameterized SQL query
+const [rows] = await db.execute("SELECT * FROM accounts WHERE id = ?", [accountId]);`;
+  }
+  if (lower.includes("header") || lower.includes("csp") || lower.includes("hsts") || cwe === "CWE-16") {
+    return `// Security Headers middleware
+res.setHeader("Content-Security-Policy", "default-src 'self'");
+res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+res.setHeader("X-Content-Type-Options", "nosniff");
+res.setHeader("X-Frame-Options", "DENY");`;
+  }
+  if (lower.includes("crlf") || cwe === "CWE-113") {
+    return `// Strip CRLF injection characters
+const sanitizedHeader = userHeaderValue.replace(/[\\r\\n]/g, "");
+res.setHeader("X-Custom-Header", sanitizedHeader);`;
+  }
+  return void 0;
 }
 var convertScanResultToFindings = normalizeRemoteFindings;
 
@@ -4496,7 +4588,7 @@ var UnifiedSecurityClient = class {
 // src/orchestrator/client.ts
 import {
   VercelError,
-  isSastProfile
+  isSastProfile as isSastProfile2
 } from "@whoami/types";
 
 // src/sast/zip-builder.ts
@@ -4840,6 +4932,60 @@ function generateControllerHmacHeaders(options) {
 }
 
 // src/orchestrator/client.ts
+var DAST_PROFILE_TO_TOOL_MAP = {
+  recon: { tool: "httpx", mode: "passive" },
+  "web-discovery": { tool: "katana", mode: "passive" },
+  "network-portscan": { tool: "naabu", mode: "passive" },
+  "fast-portscan": { tool: "naabu", mode: "passive" },
+  "smart-portscan": { tool: "naabu", mode: "passive" },
+  "content-discovery": { tool: "ffuf", mode: "active" },
+  "deep-content-discovery": { tool: "ffuf", mode: "active" },
+  "web-crawl": { tool: "katana", mode: "passive" },
+  "vuln-assessment": { tool: "nuclei", mode: "active" },
+  "xss-scan": { tool: "dalfox", mode: "active" },
+  "dast-zap": { tool: "nuclei", mode: "active" },
+  "oob-interaction": { tool: "nuclei", mode: "active" },
+  "dns-recon": { tool: "dnsx", mode: "passive" },
+  "subdomain-takeover": { tool: "subfinder", mode: "passive" },
+  "waf-detect": { tool: "wafw00f", mode: "passive" },
+  "cors-audit": { tool: "cors-check", mode: "passive" },
+  "crlf-scan": { tool: "crlfuzz", mode: "active" },
+  "ssti-scan": { tool: "nuclei", mode: "active" }
+};
+var DAST_ACTIVE_TOOLS = /* @__PURE__ */ new Set([
+  "nuclei",
+  "dalfox",
+  "crlfuzz",
+  "sqlmap",
+  "nikto",
+  "commix",
+  "ffuf",
+  "arjun",
+  "ssrf-detector",
+  "xxe-injector",
+  "jwt-tool",
+  "graphql-cop",
+  "api-fuzzer",
+  "auth-matrix",
+  "idor-tester",
+  "vuln-assessment",
+  "xss-scan",
+  "dast-zap",
+  "content-discovery",
+  "deep-content-discovery",
+  "crlf-scan",
+  "ssti-scan"
+]);
+function resolveDastProfile(profile) {
+  if (!profile) return { mode: "passive" };
+  const p = profile.toLowerCase().trim();
+  const mapped = DAST_PROFILE_TO_TOOL_MAP[p];
+  if (mapped) {
+    return mapped;
+  }
+  const mode = DAST_ACTIVE_TOOLS.has(p) ? "active" : "passive";
+  return { tool: p, mode };
+}
 var TERMINAL_SCAN_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
 var DEFAULT_POLL_MAX_WAIT_MS = 40 * 60 * 1e3;
 var MAX_CONSECUTIVE_POLL_ERRORS = 8;
@@ -4907,7 +5053,7 @@ function buildQueryString(params) {
   }
   return parts.length > 0 ? `?${parts.join("&")}` : "";
 }
-var ScanOrchestratorClient = class {
+var ScanOrchestratorClient = class _ScanOrchestratorClient {
   baseUrl;
   apiKey;
   adminApiKey;
@@ -4920,8 +5066,15 @@ var ScanOrchestratorClient = class {
   useMicroservices;
   sastClient;
   dastClient;
-  targetMap = /* @__PURE__ */ new Map();
-  scanMetaMap = /* @__PURE__ */ new Map();
+  static targetMap = /* @__PURE__ */ new Map();
+  static scanMetaMap = /* @__PURE__ */ new Map();
+  static clearStateForTests() {
+    _ScanOrchestratorClient.targetMap.clear();
+    _ScanOrchestratorClient.scanMetaMap.clear();
+  }
+  static getScanMeta(scanId) {
+    return _ScanOrchestratorClient.scanMetaMap.get(scanId);
+  }
   constructor(config = {}) {
     const rawUrl = config.baseUrl || DEFAULT_ORCHESTRATOR_URL;
     this.baseUrl = cleanCredential(rawUrl)?.replace(/\/+$/, "") || DEFAULT_ORCHESTRATOR_URL;
@@ -4937,14 +5090,14 @@ var ScanOrchestratorClient = class {
     this.useMicroservices = config.useMicroservices ?? this.baseUrl === DEFAULT_ORCHESTRATOR_URL;
     this.sastClient = new SastClient({
       baseUrl: config.sastBaseUrl || DEFAULT_SAST_SERVICE_URL,
-      jwtToken: this.jwtToken,
+      jwtToken: this.jwtToken || DEFAULT_CODEFY_JWT,
       apiKey: this.apiKey,
       fetchImpl: this.fetchFn,
       timeoutMs: this.timeoutMs
     });
     this.dastClient = new DastClient({
       baseUrl: config.dastBaseUrl || DEFAULT_DAST_SERVICE_URL,
-      jwtToken: this.jwtToken,
+      jwtToken: this.jwtToken || DEFAULT_CODEFY_JWT,
       apiKey: this.apiKey,
       fetchImpl: this.fetchFn,
       timeoutMs: this.timeoutMs
@@ -5256,7 +5409,7 @@ var ScanOrchestratorClient = class {
         value: targetPayload.value,
         created_at: (/* @__PURE__ */ new Date()).toISOString()
       };
-      this.targetMap.set(targetId, targetRead);
+      _ScanOrchestratorClient.targetMap.set(targetId, targetRead);
       return targetRead;
     }
     return this.request("/v1/targets", {
@@ -5269,8 +5422,8 @@ var ScanOrchestratorClient = class {
    * List Registered Targets with pagination (GET /v1/targets)
    */
   async listTargets(params) {
-    if (this.useMicroservices && this.targetMap.size > 0) {
-      return Array.from(this.targetMap.values());
+    if (this.useMicroservices && _ScanOrchestratorClient.targetMap.size > 0) {
+      return Array.from(_ScanOrchestratorClient.targetMap.values());
     }
     const qs = buildQueryString(params);
     return this.request(`/v1/targets${qs}`, {
@@ -5283,7 +5436,7 @@ var ScanOrchestratorClient = class {
    */
   async getTarget(targetId) {
     if (this.useMicroservices) {
-      const local = this.targetMap.get(targetId);
+      const local = _ScanOrchestratorClient.targetMap.get(targetId);
       if (local) return local;
     }
     return this.request(`/v1/targets/${encodeURIComponent(targetId)}`, {
@@ -5299,14 +5452,15 @@ var ScanOrchestratorClient = class {
    */
   async submitScan(scan, idempotencyKey) {
     if (this.useMicroservices) {
-      if (isSastProfile(scan.profile)) {
+      if (isSastProfile2(scan.profile)) {
         return this.submitSastScan(
           { target_id: scan.target_id, profile: scan.profile },
           idempotencyKey
         );
       }
-      const target = this.targetMap.get(scan.target_id);
-      const rawTarget = target?.value || scan.target_id;
+      const target = _ScanOrchestratorClient.targetMap.get(scan.target_id);
+      const customUrl = scan.target_url || scan.target_value;
+      const rawTarget = customUrl || target?.value || scan.target_id;
       const targetUrl = rawTarget.startsWith("http://") || rawTarget.startsWith("https://") ? rawTarget : `https://${rawTarget}`;
       const validation = await this.dastClient.validateTarget(targetUrl);
       const isSafe = validation.safe_to_scan ?? validation.valid ?? validation.ok ?? false;
@@ -5315,12 +5469,13 @@ var ScanOrchestratorClient = class {
           `Target ${targetUrl} is not safe to scan: ${validation.message || validation.reason || validation.code || "Restricted address"}`
         );
       }
+      const { tool, mode } = resolveDastProfile(scan.profile);
       const res = await this.dastClient.submitScan({
         target_url: targetUrl,
-        mode: "passive",
-        tools: scan.profile ? [scan.profile] : void 0
+        mode,
+        tools: tool ? [tool] : void 0
       });
-      this.scanMetaMap.set(res.job_id, {
+      _ScanOrchestratorClient.scanMetaMap.set(res.job_id, {
         targetId: scan.target_id,
         profile: scan.profile,
         targetValue: targetUrl,
@@ -5347,6 +5502,50 @@ var ScanOrchestratorClient = class {
    * List DAST scans with optional filters & pagination (GET /v1/scans)
    */
   async listScans(params) {
+    if (this.useMicroservices) {
+      try {
+        const res = await this.dastClient.listScans({
+          limit: params?.limit,
+          offset: params?.offset
+        });
+        if (Array.isArray(res.items)) {
+          return res.items.map((job) => {
+            const meta = _ScanOrchestratorClient.scanMetaMap.get(job.job_id);
+            const status = job.status === "completed" ? "completed" : job.status === "failed" || job.status === "cancelled" ? "failed" : "running";
+            return {
+              id: job.job_id,
+              target_id: meta?.targetId || params?.target_id || "target-dast",
+              profile: meta?.profile || "dast-scan",
+              status,
+              controller_job_id: job.job_id,
+              failure_reason: job.error_message || null,
+              created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString()
+            };
+          });
+        }
+      } catch (err) {
+        this.logger.debug(
+          `dastClient.listScans not available or failed, falling back to local scanMetaMap: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      const localScans = [];
+      for (const [jobId, meta] of _ScanOrchestratorClient.scanMetaMap.entries()) {
+        if (meta.kind === "dast") {
+          if (!params?.target_id || meta.targetId === params.target_id) {
+            localScans.push({
+              id: jobId,
+              target_id: meta.targetId,
+              profile: meta.profile,
+              status: "running",
+              controller_job_id: jobId,
+              failure_reason: null,
+              created_at: (/* @__PURE__ */ new Date()).toISOString()
+            });
+          }
+        }
+      }
+      return localScans;
+    }
     const qs = buildQueryString(params);
     return this.request(`/v1/scans${qs}`, {
       method: "GET",
@@ -5357,19 +5556,35 @@ var ScanOrchestratorClient = class {
    * Retrieve the status of a DAST scan job (GET /v1/scans/{scan_id})
    */
   async getScan(scanId) {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
-      const job = await this.dastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
-      const status = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "cancelled" ? "cancelled" : "running";
-      return {
-        id: job.job_id,
-        target_id: meta?.targetId || "target-dast",
-        profile: meta?.profile || "dast-scan",
-        status,
-        controller_job_id: job.job_id,
-        failure_reason: job.error_message || null,
-        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString()
-      };
+    if (this.useMicroservices && (scanId.startsWith("job_") || _ScanOrchestratorClient.scanMetaMap.has(scanId))) {
+      try {
+        const job = await this.dastClient.getJob(scanId);
+        const meta = _ScanOrchestratorClient.scanMetaMap.get(scanId);
+        const status = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "cancelled" ? "cancelled" : "running";
+        return {
+          id: job.job_id,
+          target_id: meta?.targetId || "target-dast",
+          profile: meta?.profile || "dast-scan",
+          status,
+          controller_job_id: job.job_id,
+          failure_reason: job.error_message || null,
+          created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString()
+        };
+      } catch (err) {
+        const meta = _ScanOrchestratorClient.scanMetaMap.get(scanId);
+        if (meta) {
+          return {
+            id: scanId,
+            target_id: meta.targetId,
+            profile: meta.profile,
+            status: "running",
+            controller_job_id: scanId,
+            failure_reason: err instanceof Error ? err.message : String(err),
+            created_at: (/* @__PURE__ */ new Date()).toISOString()
+          };
+        }
+        throw err;
+      }
     }
     return this.request(`/v1/scans/${encodeURIComponent(scanId)}`, {
       method: "GET",
@@ -5404,38 +5619,64 @@ var ScanOrchestratorClient = class {
    * Get the parsed results, summary, and artifacts of a DAST scan (GET /v1/scans/{scan_id}/result)
    */
   async getScanResult(scanId) {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
-      const job = await this.dastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
-      const targetUrl = meta?.targetValue || job.target_url || "target";
-      const summary = {
-        total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
-        risk_summary: {
-          critical: job.summary?.critical ?? 0,
-          high: job.summary?.high ?? 0,
-          medium: job.summary?.medium ?? 0,
-          low: job.summary?.low ?? 0,
-          info: job.summary?.info ?? 0,
-          total: job.summary?.total_findings ?? job.findings.length
-        },
-        findings: job.findings.map((f, i) => ({
-          title: f.title,
-          severity: f.severity,
-          description: f.remediation || f.title,
-          host: f.target_url || targetUrl,
-          template_id: f.rule_id || f.tool_name,
-          cwe: f.cwe_id || void 0
-        })),
-        technologies: job.summary?.technologies || []
-      };
-      return {
-        id: `result-${job.job_id}`,
-        scan_job_id: job.job_id,
-        summary,
-        created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString(),
-        artifact: null,
-        error_logs: job.error_message || null
-      };
+    if (this.useMicroservices && (scanId.startsWith("job_") || _ScanOrchestratorClient.scanMetaMap.has(scanId))) {
+      try {
+        const job = await this.dastClient.getJob(scanId);
+        const meta = _ScanOrchestratorClient.scanMetaMap.get(scanId);
+        const targetUrl = meta?.targetValue || job.target_url || "target";
+        const rawFindings = Array.isArray(job.findings) ? job.findings : [];
+        const summaryObj = job.summary && typeof job.summary === "object" ? job.summary : {};
+        const totalFindings = typeof summaryObj.total_findings === "number" ? summaryObj.total_findings : rawFindings.length;
+        const summary = {
+          total_rules_evaluated: totalFindings,
+          risk_summary: {
+            critical: typeof summaryObj.critical === "number" ? summaryObj.critical : 0,
+            high: typeof summaryObj.high === "number" ? summaryObj.high : 0,
+            medium: typeof summaryObj.medium === "number" ? summaryObj.medium : 0,
+            low: typeof summaryObj.low === "number" ? summaryObj.low : 0,
+            info: typeof summaryObj.info === "number" ? summaryObj.info : 0,
+            total: totalFindings
+          },
+          findings: rawFindings.map((f, i) => ({
+            id: f.id || `dast-${job.job_id}-${i + 1}`,
+            title: f.title || "Security Finding",
+            severity: (f.severity || "medium").toLowerCase(),
+            description: f.description || f.title || "Finding detected by DAST engine",
+            host: f.target_url || targetUrl,
+            template_id: f.rule_id || f.vulnerability_id || f.tool_name || "dast-vuln",
+            cwe: f.cwe_id || void 0,
+            remediation: f.remediation || f.solution || void 0
+          })),
+          technologies: Array.isArray(summaryObj.technologies) ? summaryObj.technologies : []
+        };
+        return {
+          id: `result-${job.job_id}`,
+          scan_job_id: job.job_id,
+          summary,
+          created_at: job.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+          artifact: null,
+          error_logs: job.error_message || null
+        };
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `getScanResult failed for ${scanId}: ${errMsg}`,
+          err instanceof Error ? err : void 0
+        );
+        return {
+          id: `result-${scanId}`,
+          scan_job_id: scanId,
+          summary: {
+            total_rules_evaluated: 0,
+            risk_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 },
+            findings: [],
+            technologies: []
+          },
+          created_at: (/* @__PURE__ */ new Date()).toISOString(),
+          artifact: null,
+          error_logs: errMsg
+        };
+      }
     }
     return this.request(
       `/v1/scans/${encodeURIComponent(scanId)}/result`,
@@ -5449,9 +5690,11 @@ var ScanOrchestratorClient = class {
    * Polls a DAST scan job until it reaches a terminal status ('completed', 'failed', 'cancelled')
    */
   async pollScanUntilComplete(scanId, options = {}) {
+    const meta = _ScanOrchestratorClient.scanMetaMap.get(scanId);
+    const kind = options.kind ?? meta?.kind ?? "dast";
     const [polled] = await this.pollScansUntilComplete([scanId], {
       ...options,
-      kind: "dast",
+      kind,
       onProgress: (scans) => {
         if (scans[0]) options.onProgress?.(scans[0]);
       }
@@ -5533,7 +5776,11 @@ var ScanOrchestratorClient = class {
     );
   }
   async fetchScanStatuses(scanIds, kind, targetId) {
-    const getOne = (id) => kind === "sast" ? this.getSastScan(id) : this.getScan(id);
+    const getOne = (id) => {
+      const meta = _ScanOrchestratorClient.scanMetaMap.get(id);
+      const resolvedKind = meta?.kind ?? kind;
+      return resolvedKind === "sast" ? this.getSastScan(id) : this.getScan(id);
+    };
     if (!targetId || scanIds.length < 2) {
       const scans2 = [];
       for (const id of scanIds) scans2.push(await getOne(id));
@@ -5573,7 +5820,9 @@ var ScanOrchestratorClient = class {
     return scans;
   }
   async fetchTerminalResult(scan, kind) {
-    const getResult = (id) => kind === "sast" ? this.getSastScanResult(id) : this.getScanResult(id);
+    const meta = _ScanOrchestratorClient.scanMetaMap.get(scan.id);
+    const resolvedKind = meta?.kind ?? kind;
+    const getResult = (id) => resolvedKind === "sast" ? this.getSastScanResult(id) : this.getScanResult(id);
     if (scan.status === "completed") return getResult(scan.id);
     try {
       return await getResult(scan.id);
@@ -5631,8 +5880,8 @@ var ScanOrchestratorClient = class {
    */
   async submitSastScan(scan, idempotencyKey) {
     if (this.useMicroservices) {
-      const target = this.targetMap.get(scan.target_id);
-      const targetValue = target?.value || scan.target_id;
+      const target = _ScanOrchestratorClient.targetMap.get(scan.target_id);
+      const targetValue = scan.workspace_path || scan.folder_path || target?.value || scan.target_id;
       const isRepo = targetValue.startsWith("http://") || targetValue.startsWith("https://") || targetValue.startsWith("git@") || targetValue.endsWith(".git");
       const profile = scan.profile || "sast-semgrep";
       const isActive = profile === "sast-active" || profile.includes("active") || profile === "sast-deep";
@@ -5646,9 +5895,30 @@ var ScanOrchestratorClient = class {
         jobId = res.job_id;
       } else {
         let zipData;
-        try {
-          const packaged = packageWorkspaceDirectory(targetValue);
-          if (packaged.stats.includedFiles === 0) {
+        if (scan.zipData) {
+          zipData = scan.zipData;
+        } else if (scan.files && scan.files.length > 0) {
+          const entries = scan.files.map((f) => ({
+            path: f.path,
+            data: new TextEncoder().encode(f.content)
+          }));
+          zipData = buildZipArchive(entries);
+        } else {
+          try {
+            const packaged = packageWorkspaceDirectory(targetValue);
+            if (packaged.stats.includedFiles === 0) {
+              const dummyEntry = {
+                path: "README.md",
+                data: new TextEncoder().encode(
+                  `# Codebase Scope: ${targetValue}
+Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
+                )
+              };
+              zipData = buildZipArchive([dummyEntry]);
+            } else {
+              zipData = packaged.zipData;
+            }
+          } catch {
             const dummyEntry = {
               path: "README.md",
               data: new TextEncoder().encode(
@@ -5657,23 +5927,12 @@ Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
               )
             };
             zipData = buildZipArchive([dummyEntry]);
-          } else {
-            zipData = packaged.zipData;
           }
-        } catch {
-          const dummyEntry = {
-            path: "README.md",
-            data: new TextEncoder().encode(
-              `# Codebase Scope: ${targetValue}
-Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
-            )
-          };
-          zipData = buildZipArchive([dummyEntry]);
         }
         const res = isActive ? await this.sastClient.submitActiveScan(zipData, "source.zip", scan.target_id) : await this.sastClient.submitPassiveScan(zipData, "source.zip", scan.target_id);
         jobId = res.job_id;
       }
-      this.scanMetaMap.set(jobId, {
+      _ScanOrchestratorClient.scanMetaMap.set(jobId, {
         targetId: scan.target_id,
         profile,
         targetValue,
@@ -5709,7 +5968,7 @@ Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
           status: params?.status
         });
         return res.items.map((job) => {
-          const meta = this.scanMetaMap.get(job.job_id);
+          const meta = _ScanOrchestratorClient.scanMetaMap.get(job.job_id);
           const status = job.status === "completed" ? "completed" : job.status === "failed" || job.status === "expired" ? "failed" : "running";
           return {
             id: job.job_id,
@@ -5754,9 +6013,9 @@ Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
    * Retrieve the status of a SAST scan job (GET /v1/sast/scans/{scan_id})
    */
   async getSastScan(scanId) {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || _ScanOrchestratorClient.scanMetaMap.has(scanId))) {
       const job = await this.sastClient.getJob(scanId);
-      const meta = this.scanMetaMap.get(scanId);
+      const meta = _ScanOrchestratorClient.scanMetaMap.get(scanId);
       const status = job.status === "completed" ? "completed" : job.status === "failed" || job.status === "expired" ? "failed" : "running";
       return {
         id: job.job_id,
@@ -5804,35 +6063,40 @@ Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
    * Get the parsed results, summary, and findings of a SAST scan (GET /v1/sast/scans/{scan_id}/result)
    */
   async getSastScanResult(scanId) {
-    if (this.useMicroservices && (scanId.startsWith("job_") || this.scanMetaMap.has(scanId))) {
+    if (this.useMicroservices && (scanId.startsWith("job_") || _ScanOrchestratorClient.scanMetaMap.has(scanId))) {
       try {
         const job = await this.sastClient.getJob(scanId);
-        const meta = this.scanMetaMap.get(scanId);
+        const meta = _ScanOrchestratorClient.scanMetaMap.get(scanId);
+        const rawFindings = Array.isArray(job.findings) ? job.findings : [];
+        const totalFindings = job.summary?.total_findings ?? rawFindings.length;
         const summary = {
-          total_rules_evaluated: job.summary?.total_findings ?? job.findings.length,
+          total_rules_evaluated: totalFindings,
           risk_summary: {
             critical: job.summary?.critical ?? 0,
             high: job.summary?.high ?? 0,
             medium: job.summary?.medium ?? 0,
             low: job.summary?.low ?? 0,
             info: 0,
-            total: job.summary?.total_findings ?? job.findings.length
+            total: totalFindings
           },
-          findings: job.findings.map((f, i) => ({
-            id: f.id || `sast-${job.job_id}-${i + 1}`,
-            code: f.vulnerability_id || f.tool_name,
-            severity: f.severity,
-            title: f.title,
-            description: f.description || f.title,
-            evidence: {
-              file: f.file_path,
-              line: f.line_start,
-              detector: f.tool_name,
-              check_id: f.vulnerability_id,
-              cwe: f.cwe_id ? [f.cwe_id] : void 0
-            },
-            remediation: f.remediation || void 0
-          }))
+          findings: rawFindings.map((f, i) => {
+            const lineStart = typeof f.line_start === "number" ? f.line_start : f.line_start ? Number(f.line_start) || 1 : 1;
+            return {
+              id: f.id || `sast-${job.job_id}-${i + 1}`,
+              code: f.vulnerability_id || f.tool_name || "sast-vuln",
+              severity: (f.severity || "medium").toLowerCase(),
+              title: f.title || f.vulnerability_id || "Security Finding",
+              description: f.description || f.title || "Vulnerability detected by SAST engine",
+              evidence: {
+                file: f.file_path,
+                line: lineStart,
+                detector: f.tool_name,
+                check_id: f.vulnerability_id,
+                cwe: f.cwe_id ? [f.cwe_id] : void 0
+              },
+              remediation: f.remediation || void 0
+            };
+          })
         };
         return {
           id: `result-${job.job_id}`,
@@ -5844,6 +6108,10 @@ Scanned with Codefy SAST at ${(/* @__PURE__ */ new Date()).toISOString()}`
         };
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `getSastScanResult failed for ${scanId}: ${errMsg}`,
+          err instanceof Error ? err : void 0
+        );
         return {
           id: `result-${scanId}`,
           scan_job_id: scanId,
@@ -6060,7 +6328,9 @@ async function handleOrchestratorMessage(getClient, message, post) {
       return true;
     }
     case "poll-remote-scan-request": {
-      const { scan, result } = await client.pollScanUntilComplete(message.scanId);
+      const meta = ScanOrchestratorClient.getScanMeta(message.scanId);
+      const kind = message.kind ?? meta?.kind ?? "dast";
+      const { scan, result } = await client.pollScanUntilComplete(message.scanId, { kind });
       post({ type: "poll-remote-scan-result", scan, result, requestId });
       return true;
     }
@@ -6165,6 +6435,7 @@ export {
   DEFAULT_ADMIN_API_KEY,
   DEFAULT_AI_GATEWAY_URL,
   DEFAULT_AUTH_SERVICE_URL,
+  DEFAULT_CODEFY_JWT,
   DEFAULT_DAST_SERVICE_URL,
   DEFAULT_OPERATOR_API_KEY,
   DEFAULT_ORCHESTRATOR_URL,

@@ -767,6 +767,14 @@ export function UnifiedScanHeader({
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest?.(".overflow-y-auto") ||
+        target?.closest?.("[data-dropdown]")
+      ) {
+        return;
+      }
+
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         if (e.deltaY !== 0 && el.scrollWidth > el.clientWidth) {
           if (e.cancelable) {
@@ -811,6 +819,14 @@ export function UnifiedScanHeader({
         ? prev.filter((id) => id !== taskId)
         : [...prev, taskId],
     );
+  };
+
+  const handleSelectAllSastTasks = () => {
+    setSelectedSastTasks(CLOUD_SAST_TASKS.map((t) => t.id));
+  };
+
+  const handleClearAllSastTasks = () => {
+    setSelectedSastTasks([]);
   };
 
   const handleToggleTask = (taskId: AllScanProfile | "secret-scan") => {
@@ -929,8 +945,10 @@ export function UnifiedScanHeader({
                 {/* Recent Folders Dropdown Menu */}
                 {isFolderDropdownOpen && (
                   <div
+                    data-dropdown="true"
+                    onWheel={(e) => e.stopPropagation()}
                     style={getDropdownStyle(folderMenuRef, "left", 288)}
-                    className="w-72 rounded-md border border-vscode-border bg-vscode-card p-1 shadow-2xl animate-in fade-in duration-100"
+                    className="w-72 rounded-md border border-vscode-border bg-vscode-card p-1 shadow-2xl animate-in fade-in duration-100 max-h-64 overflow-y-auto"
                   >
                     <button
                       type="button"
@@ -1046,8 +1064,10 @@ export function UnifiedScanHeader({
                 {/* Recent Folders Dropdown Menu */}
                 {isFolderDropdownOpen && (
                   <div
+                    data-dropdown="true"
+                    onWheel={(e) => e.stopPropagation()}
                     style={getDropdownStyle(folderMenuRef, "left", 288)}
-                    className="w-72 rounded-md border border-vscode-border bg-vscode-card p-1 shadow-2xl animate-in fade-in duration-100"
+                    className="w-72 rounded-md border border-vscode-border bg-vscode-card p-1 shadow-2xl animate-in fade-in duration-100 max-h-64 overflow-y-auto"
                   >
                     <button
                       type="button"
@@ -1115,6 +1135,7 @@ export function UnifiedScanHeader({
 
                 {isSastDropdownOpen && (
                   <div
+                    data-dropdown="true"
                     style={getDropdownStyle(sastMenuRef, "left", 288)}
                     className="w-72 rounded-md border border-vscode-border bg-vscode-card p-2 shadow-2xl animate-in fade-in duration-100"
                   >
@@ -1122,9 +1143,29 @@ export function UnifiedScanHeader({
                       <span className="text-[10px] font-bold uppercase tracking-wider text-vscode-muted">
                         Cloud SAST Engines
                       </span>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllSastTasks}
+                          className="text-severity-medium hover:underline cursor-pointer"
+                        >
+                          All
+                        </button>
+                        <span className="text-vscode-border">|</span>
+                        <button
+                          type="button"
+                          onClick={handleClearAllSastTasks}
+                          className="text-vscode-muted hover:text-vscode-fg cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex flex-col gap-1">
+                    <div
+                      className="flex flex-col gap-1 max-h-56 overflow-y-auto pr-1"
+                      onWheel={(e) => e.stopPropagation()}
+                    >
                       {CLOUD_SAST_TASKS.map((task) => {
                         const isChecked = selectedSastTasks.includes(task.id);
                         return (
@@ -1166,8 +1207,13 @@ export function UnifiedScanHeader({
               {/* Cloud SAST Action Button */}
               <div className="flex items-center gap-2 shrink-0">
                 {isCloudSastScanning && cloudSastProgress && (
-                  <span className="text-xs font-mono text-severity-medium">
-                    {cloudSastProgress.currentTask}
+                  <span
+                    className="text-xs font-mono text-severity-medium"
+                    title={cloudSastProgress.currentTask}
+                  >
+                    {cloudSastProgress.total > 0
+                      ? `Running (${Math.max(1, Math.min(cloudSastProgress.completed, cloudSastProgress.total))}/${cloudSastProgress.total})`
+                      : "Running…"}
                   </span>
                 )}
 
@@ -1225,6 +1271,7 @@ export function UnifiedScanHeader({
                 {/* Task Selection Dropdown with Checkboxes */}
                 {isTaskDropdownOpen && (
                   <div
+                    data-dropdown="true"
                     style={getDropdownStyle(taskMenuRef, "left", 288)}
                     className="w-72 rounded-md border border-vscode-border bg-vscode-card p-2 shadow-2xl animate-in fade-in duration-100"
                   >
@@ -1251,7 +1298,10 @@ export function UnifiedScanHeader({
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                    <div
+                      className="flex flex-col gap-1 max-h-56 overflow-y-auto pr-1"
+                      onWheel={(e) => e.stopPropagation()}
+                    >
                       {TARGET_DAST_TASKS.map((task) => {
                         const isChecked = selectedTasks.includes(task.id);
                         return (
@@ -1293,8 +1343,13 @@ export function UnifiedScanHeader({
               {/* Orchestrator Action Button */}
               <div className="flex items-center gap-2 shrink-0">
                 {isOrchestratorScanning && orchestratorProgress && (
-                  <span className="text-xs font-mono text-severity-low">
-                    {orchestratorProgress.currentTask} ({orchestratorProgress.completed}/{orchestratorProgress.total})
+                  <span
+                    className="text-xs font-mono text-severity-low"
+                    title={orchestratorProgress.currentTask}
+                  >
+                    {orchestratorProgress.total > 0
+                      ? `Running (${Math.max(1, Math.min(orchestratorProgress.completed, orchestratorProgress.total))}/${orchestratorProgress.total})`
+                      : "Running…"}
                   </span>
                 )}
 
@@ -1408,8 +1463,10 @@ export function UnifiedScanHeader({
               {/* Whole Code Architecture Dropdown Menu */}
               {isWholeCodeOpen && (
                 <div
+                  data-dropdown="true"
+                  onWheel={(e) => e.stopPropagation()}
                   style={getDropdownStyle(wholeCodeMenuRef, "right", 288)}
-                  className="w-72 rounded-lg border border-vscode-border bg-vscode-bg p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100 font-sans"
+                  className="w-72 rounded-lg border border-vscode-border bg-vscode-bg p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100 font-sans max-h-96 overflow-y-auto"
                 >
                   <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-vscode-muted border-b border-vscode-card-hover flex items-center justify-between">
                     <span>
@@ -1621,6 +1678,8 @@ export function UnifiedScanHeader({
 
               {isDownloadMenuOpen && (
                 <div
+                  data-dropdown="true"
+                  onWheel={(e) => e.stopPropagation()}
                   style={getDropdownStyle(downloadMenuRef, "right", 224)}
                   className="w-56 rounded-lg border border-vscode-border bg-vscode-bg p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100 font-sans"
                 >
